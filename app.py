@@ -58,6 +58,7 @@ class Question(db.Model):
     stem = db.Column(db.Text, nullable=False)
     correct_answer = db.Column(db.String(300), nullable=False)  # A or A,C or text
     explanation = db.Column(db.Text, default="")
+    ai_explanation = db.Column(db.Text, default="")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     category = db.relationship("Category", backref=db.backref("questions", lazy=True))
@@ -167,8 +168,6 @@ def render_stem(stem: str) -> str:
     return Markup(s)
 
 
-# ... existing code ...
-
 @app.template_filter("render_explanation")
 def render_explanation(explanation: str) -> Markup:
     """
@@ -240,8 +239,6 @@ def render_explanation(explanation: str) -> Markup:
         escaped = escaped.replace(escape(placeholder), html_tag)
 
     return Markup(escaped)
-
-# ... existing code ...
 
 
 def normalize_answer(qtype: str, raw_answer):
@@ -1128,6 +1125,15 @@ def init_db():
                 sql_text("ALTER TABLE exam_session ADD COLUMN scope VARCHAR(20) DEFAULT 'category'")
             )
             db.session.commit()
+        
+        # 检查并添加 ai_explanation 字段
+        question_columns = [col["name"] for col in inspector.get_columns("question")]
+        if "ai_explanation" not in question_columns:
+            db.session.execute(
+                sql_text("ALTER TABLE question ADD COLUMN ai_explanation TEXT")
+            )
+            db.session.commit()
+        
         if not User.query.filter_by(username="admin").first():
             admin = User(username="admin", is_admin=True)
             admin.set_password("admin123")

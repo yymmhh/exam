@@ -47,6 +47,12 @@
     <p>正确答案：{{ question.correct_answer }}</p>
     <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
     <p>解析：{{ question.explanation|render_explanation }}</p>
+    {% if question.ai_explanation %}
+    <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff;">
+      <p style="margin:0 0 10px 0; font-weight:bold; color:#007bff;">🤖 AI 解析：</p>
+      <div>{{ question.ai_explanation|safe }}</div>
+    </div>
+    {% endif %}
   {% endif %}
 
   <div style="display:flex; gap: 8px;">
