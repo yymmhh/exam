@@ -13,13 +13,13 @@
       <form method="post" action="{{ url_for('goto_practice', category_id=category.id) }}" style="display:inline;">
         <input type="hidden" name="target" value="{{ idx }}">
         <button type="submit"
-                style="min-width:44px; {% if idx == current_index %}font-weight:bold;{% endif %}{% if s and s.answered %}background:#e7f8ee;{% endif %}">
+                style="min-width:44px; {% if idx == current_index %}font-weight:bold;{% endif %}{% if s and s.answered %}{% if s.is_correct %}background:#e7f8ee;{% else %}background:#fee; color:#c00;{% endif %}{% endif %}">
           {{ idx }}
         </button>
       </form>
     {% endfor %}
   </div>
-  <p class="muted">绿色表示已作答，粗体表示当前题。</p>
+  <p class="muted">绿色表示已作答且正确，红色表示已作答但错误，粗体表示当前题。</p>
 </div>
 
 <div class="card">
