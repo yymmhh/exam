@@ -13,13 +13,13 @@
       <form method="post" action="{{ url_for('goto_practice', category_id=category.id) }}" style="display:inline;">
         <input type="hidden" name="target" value="{{ idx }}">
         <button type="submit"
-                style="min-width:44px; {% if idx == current_index %}font-weight:bold;{% endif %}{% if s and s.answered %}{% if s.is_correct %}background:#e7f8ee;{% else %}background:#fee; color:#c00;{% endif %}{% endif %}">
+                style="min-width:44px; {% if idx == current_index %}font-weight:bold;{% endif %}{% if s and s.answered %}{% if s.is_correct %}background:#e7f8ee;{% elif s.is_correct == false %}background:#fee; color:#c00;{% else %}background:#fff3cd;{% endif %}{% endif %}">
           {{ idx }}
         </button>
       </form>
     {% endfor %}
   </div>
-  <p class="muted">绿色表示已作答且正确，红色表示已作答但错误，粗体表示当前题。</p>
+  <p class="muted">绿色表示已作答且正确，红色表示已作答但错误，黄色表示待确认（填空题），粗体表示当前题。</p>
 </div>
 
 <div class="card">
@@ -45,7 +45,31 @@
     <hr>
     <p>你的答案：{{ status.answer }}</p>
     <p>正确答案：{{ question.correct_answer }}</p>
-    <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
+    
+    {% if question.qtype == 'blank' %}
+      {% if status.is_correct is none %}
+        <p style="padding:10px; background:#fff3cd; border-left:3px solid #ffc107;">
+          <strong>📝 待确认：</strong>请对比上方答案，自行评估是否正确
+        </p>
+        <div style="display:flex; gap:8px; margin-top:10px;">
+          <form method="post" action="{{ url_for('mark_mastered', question_id=question.id) }}">
+            <button type="submit" style="background:#28a745; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
+              ✓ 我答对了（标记为已掌握）
+            </button>
+          </form>
+          <form method="post" action="{{ url_for('mark_wrong', question_id=question.id) }}">
+            <button type="submit" style="background:#dc3545; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
+              ✗ 我答错了（加入错题库）
+            </button>
+          </form>
+        </div>
+      {% else %}
+        <p>结果：{{ '正确 ✓' if status.is_correct else '错误 ✗' }}</p>
+      {% endif %}
+    {% else %}
+      <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
+    {% endif %}
+    
     <p>解析：{{ question.explanation|render_explanation }}</p>
     {% if question.ai_explanation %}
     <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff;">
@@ -62,16 +86,17 @@
     <form method="post" action="{{ url_for('next_practice', category_id=category.id) }}">
       <button type="submit">下一题</button>
     </form>
-    {% if wrong %}
-      <form method="post" action="{{ url_for('wrong_remove', question_id=question.id) }}">
-        <button type="submit">从错题库移除</button>
-      </form>
-    {% else %}
-      <form method="post" action="{{ url_for('wrong_add', question_id=question.id) }}">
-        <button type="submit">加入错题库</button>
-      </form>
+    {% if question.qtype != 'blank' %}
+      {% if wrong %}
+        <form method="post" action="{{ url_for('wrong_remove', question_id=question.id) }}">
+          <button type="submit">从错题库移除</button>
+        </form>
+      {% else %}
+        <form method="post" action="{{ url_for('wrong_add', question_id=question.id) }}">
+          <button type="submit">加入错题库</button>
+        </form>
+      {% endif %}
     {% endif %}
   </div>
 </div>
 {% endblock %}
-

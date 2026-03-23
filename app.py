@@ -256,7 +256,8 @@ def normalize_answer(qtype: str, raw_answer):
 
 def check_answer(question: Question, user_answer: str) -> bool:
     if question.qtype == "blank":
-        return question.correct_answer.strip().lower() == user_answer.strip().lower()
+        # 填空题不自动判断，返回 None 表示需要用户自己确认
+        return None
     if question.qtype == "multiple":
         correct = sorted(
             [x.strip().upper() for x in question.correct_answer.split(",") if x.strip()]
@@ -413,7 +414,9 @@ def submit_practice(category_id):
     else:
         raw = request.form.get("answer", "")
     answer = normalize_answer(question.qtype, raw)
-    is_correct = check_answer(question, answer)
+    
+    # 填空题不自动判断对错
+    is_correct = None if question.qtype == "blank" else check_answer(question, answer)
 
     status = UserQuestionStatus.query.filter_by(
         user_id=current_user.id, question_id=question.id
@@ -422,11 +425,12 @@ def submit_practice(category_id):
         status = UserQuestionStatus(user_id=current_user.id, question_id=question.id)
         db.session.add(status)
     status.answered = True
-    status.is_correct = is_correct
+    status.is_correct = is_correct  # 填空题为 None
     status.answer = answer
     status.last_answered_at = datetime.utcnow()
 
-    if not is_correct:
+    # 只有非填空题才自动加入错题库
+    if is_correct is False:
         wrong = WrongQuestion.query.filter_by(
             user_id=current_user.id, question_id=question.id
         ).first()
@@ -434,7 +438,11 @@ def submit_practice(category_id):
             db.session.add(WrongQuestion(user_id=current_user.id, question_id=question.id))
 
     db.session.commit()
-    flash("回答正确！" if is_correct else "回答错误，已可加入错题库。", "success" if is_correct else "error")
+    
+    if question.qtype == "blank":
+        flash("填空题已提交，请对比答案并自行评估。", "info")
+    else:
+        flash("回答正确！" if is_correct else "回答错误，已可加入错题库。", "success" if is_correct else "error")
     return redirect(url_for("practice_question", category_id=category_id))
 
 
@@ -655,7 +663,9 @@ def wrong_practice_submit(session_id, index):
     else:
         raw = request.form.get("answer", "")
     answer = normalize_answer(question.qtype, raw)
-    is_correct = check_answer(question, answer)
+    
+    # 填空题不自动判断对错
+    is_correct = None if question.qtype == "blank" else check_answer(question, answer)
 
     eq.user_answer = answer
     eq.is_correct = is_correct
@@ -675,13 +685,15 @@ def wrong_practice_submit(session_id, index):
         user_id=current_user.id, question_id=question.id
     ).first()
 
-    if is_correct:
-        # 错题练习：做对就从错题库移除
+    if is_correct is True:
+        # 做对就从错题库移除（非填空题）
         if wrong:
             db.session.delete(wrong)
-    else:
+    elif is_correct is False:
+        # 做错就保留在错题库
         if not wrong:
             db.session.add(WrongQuestion(user_id=current_user.id, question_id=question.id))
+    # 填空题为 None，保持现状
 
     db.session.commit()
 
@@ -1139,6 +1151,65 @@ def init_db():
             admin.set_password("admin123")
             db.session.add(admin)
             db.session.commit()
+
+@app.post("/practice/mark-mastered/<int:question_id>")
+@login_required
+def mark_mastered(question_id):
+    """标记填空题为已掌握"""
+    question = db.session.get(Question, question_id)
+    if not question:
+        flash("题目不存在。", "error")
+        return redirect(url_for("index"))
+    
+    status = UserQuestionStatus.query.filter_by(
+        user_id=current_user.id, question_id=question_id
+    ).first()
+    
+    if status:
+        # 如果用户认为自己答对了，标记为正确
+        status.is_correct = True
+        
+        # 从错题库移除（如果在的话）
+        wrong = WrongQuestion.query.filter_by(
+            user_id=current_user.id, question_id=question_id
+        ).first()
+        if wrong:
+            db.session.delete(wrong)
+        
+        db.session.commit()
+        flash("已标记为已掌握", "success")
+    
+    return redirect(request.referrer or url_for("practice_question", category_id=question.category_id))
+
+
+@app.post("/practice/mark-wrong/<int:question_id>")
+@login_required
+def mark_wrong(question_id):
+    """标记填空题为错误"""
+    question = db.session.get(Question, question_id)
+    if not question:
+        flash("题目不存在。", "error")
+        return redirect(url_for("index"))
+    
+    status = UserQuestionStatus.query.filter_by(
+        user_id=current_user.id, question_id=question_id
+    ).first()
+    
+    if status:
+        # 如果用户认为自己答错了，标记为错误
+        status.is_correct = False
+        
+        # 加入错题库
+        wrong = WrongQuestion.query.filter_by(
+            user_id=current_user.id, question_id=question_id
+        ).first()
+        if not wrong:
+            db.session.add(WrongQuestion(user_id=current_user.id, question_id=question_id))
+        
+        db.session.commit()
+        flash("已标记为错误并加入错题库", "info")
+    
+    return redirect(request.referrer or url_for("practice_question", category_id=question.category_id))
 
 
 if __name__ == "__main__":
