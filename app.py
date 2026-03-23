@@ -167,19 +167,53 @@ def render_stem(stem: str) -> str:
     return Markup(s)
 
 
+# ... existing code ...
+
 @app.template_filter("render_explanation")
 def render_explanation(explanation: str) -> Markup:
     """
-    把题目解析中的 <BR> / <br/> / <br /> 等，渲染为真正换行 <br>。
-    安全策略：先把 br 标签替换为占位符，避免把任意 HTML 执行出来；最后再还原为 <br>。
+    把题目解析中的 <BR> / <br/> <br /> 等，渲染为真正换行 <br>。
+    同时支持 <img> 等 HTML 标签的安全渲染。
+    安全策略：对 br 和 img 标签做特殊保护，其他内容正常转义。
     """
     raw = str(explanation or "")
     raw = raw.strip()
     if not raw:
         raw = "暂无解析"
 
-    # 处理可能的“二次编码”（例如 &amp;lt;BR&amp;gt;）
+    # 处理可能的"二次编码"（例如 &amp;lt;BR&amp;gt;）
     raw = html.unescape(raw)
+
+    # 提取并保护 <img> 标签
+    img_placeholder_map = {}
+    img_counter = 0
+    
+    def save_img(match):
+        nonlocal img_counter
+        placeholder = f"__EXAM_RENDER_IMG_{img_counter}__"
+        img_placeholder_map[placeholder] = match.group(0)
+        img_counter += 1
+        return placeholder
+    
+    # 保存所有 img 标签
+    raw = re.sub(r'<\s*img[^>]*>', save_img, raw, flags=re.I)
+    
+    # 也保存可能存在的其他需要直接渲染的标签（如 span, div 等）
+    # 如果只需要图片支持，可以注释掉下面这部分
+    other_html_placeholder_map = {}
+    other_html_counter = 0
+    
+    def save_other_html(match):
+        nonlocal other_html_counter
+        tag_match = re.match(r'<(\w+)', match.group(0))
+        if tag_match and tag_match.group(1).lower() in ['span', 'div', 'p', 'strong', 'em', 'b', 'i', 'u']:
+            placeholder = f"__EXAM_RENDER_HTML_{other_html_counter}__"
+            other_html_placeholder_map[placeholder] = match.group(0)
+            other_html_counter += 1
+            return placeholder
+        return match.group(0)
+    
+    raw = re.sub(r'<\s*(span|div|p|strong|em|b|i|u)[^>]*>.*?<\s*/\s*\1\s*>', save_other_html, raw, flags=re.I | re.S)
 
     placeholder = "__EXAM_RENDER_EXPLANATION_BR__"
     # 1) 真实标签形式：<br> <br/> <br />（大小写/空格都兼容）
@@ -196,8 +230,18 @@ def render_explanation(explanation: str) -> Markup:
 
     # &nbsp; 也做兼容：escape 之后会变成 &amp;nbsp;
     escaped = escaped.replace("&amp;nbsp;", "\u00A0").replace("&amp;nbsp", "\u00A0")
+    
+    # 恢复 img 标签
+    for placeholder, img_tag in img_placeholder_map.items():
+        escaped = escaped.replace(escape(placeholder), img_tag)
+    
+    # 恢复其他 HTML 标签
+    for placeholder, html_tag in other_html_placeholder_map.items():
+        escaped = escaped.replace(escape(placeholder), html_tag)
 
     return Markup(escaped)
+
+# ... existing code ...
 
 
 def normalize_answer(qtype: str, raw_answer):
