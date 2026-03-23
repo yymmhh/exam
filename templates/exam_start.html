@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}模拟考试{% endblock %}
+{% block content %}
+<h2>开始模拟考试</h2>
+<form method="post" class="card">
+  <p>抽题数量：<input type="number" name="count" value="10" min="1"></p>
+  <p><button type="submit">开始考试</button></p>
+</form>
+{% endblock %}

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}编辑题目{% endblock %}
+{% block content %}
+<h2>编辑题目 #{{ question.id }}</h2>
+<p><a href="{{ url_for('admin_questions', category_id=question.category_id) }}">返回题目列表</a></p>
+
+<form method="post" class="card">
+  <p>
+    题型：
+    <select name="qtype" required>
+      <option value="single" {% if question.qtype == 'single' %}selected{% endif %}>single</option>
+      <option value="multiple" {% if question.qtype == 'multiple' %}selected{% endif %}>multiple</option>
+      <option value="blank" {% if question.qtype == 'blank' %}selected{% endif %}>blank</option>
+    </select>
+  </p>
+  <p>题干：<textarea name="stem" required>{{ question.stem }}</textarea></p>
+  <p>答案：<input name="answer" value="{{ question.correct_answer }}" style="width:100%;" required></p>
+  <p>解析：<textarea name="explanation">{{ question.explanation or '' }}</textarea></p>
+
+  <h3>选项（single/multiple 时填写）</h3>
+  {% set existing = choices if choices else [] %}
+  {% for c in existing %}
+    <p>
+      <input name="option_key" value="{{ c.option_key }}" style="width:60px;" placeholder="A">
+      <input name="option_text" value="{{ c.option_text }}" style="width:70%;" placeholder="选项内容">
+    </p>
+  {% endfor %}
+  {% for i in range(6 - existing|length) %}
+    <p>
+      <input name="option_key" style="width:60px;" placeholder="A">
+      <input name="option_text" style="width:70%;" placeholder="选项内容">
+    </p>
+  {% endfor %}
+
+  <p><button type="submit">保存题目</button></p>
+</form>
+{% endblock %}

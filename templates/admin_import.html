@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}导入题目{% endblock %}
+{% block content %}
+<h2>导入题目 - {{ category.name }}</h2>
+<p>请粘贴 JSON 数组，格式参考下方示例。</p>
+<form method="post" class="card">
+  <textarea name="content" required>{{ sample }}</textarea>
+  <p><button type="submit">开始导入</button></p>
+</form>
+{% endblock %}

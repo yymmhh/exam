@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}练习 - {{ category.name }}{% endblock %}
+{% block content %}
+<h2>{{ category.name }} 练习</h2>
+<p>第 {{ current_index }} / {{ total }} 题</p>
+
+<div class="card">
+  <h3>答题卡</h3>
+  <div style="display:flex; flex-wrap:wrap; gap:6px;">
+    {% for q in questions %}
+      {% set s = statuses.get(q.id) %}
+      {% set idx = loop.index %}
+      <form method="post" action="{{ url_for('goto_practice', category_id=category.id) }}" style="display:inline;">
+        <input type="hidden" name="target" value="{{ idx }}">
+        <button type="submit"
+                style="min-width:44px; {% if idx == current_index %}font-weight:bold;{% endif %}{% if s and s.answered %}background:#e7f8ee;{% endif %}">
+          {{ idx }}
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+  <p class="muted">绿色表示已作答，粗体表示当前题。</p>
+</div>
+
+<div class="card">
+  <h3>{{ question.stem|render_stem }}</h3>
+  <form method="post" action="{{ url_for('submit_practice', category_id=category.id) }}">
+    <input type="hidden" name="question_id" value="{{ question.id }}">
+    {% if question.qtype in ['single', 'multiple'] %}
+      {% for choice in question.choices|sort(attribute='option_key') %}
+        <p>
+          <label>
+            <input type="{{ 'checkbox' if question.qtype == 'multiple' else 'radio' }}" name="answer" value="{{ choice.option_key }}">
+            {{ choice.option_key }}. {{ choice.option_text|safe }}
+          </label>
+        </p>
+      {% endfor %}
+    {% else %}
+      <p><input name="answer" placeholder="请输入填空答案" style="width: 100%;"></p>
+    {% endif %}
+    <p><button type="submit">提交答案</button></p>
+  </form>
+
+  {% if status and status.answered %}
+    <hr>
+    <p>你的答案：{{ status.answer }}</p>
+    <p>正确答案：{{ question.correct_answer }}</p>
+    <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
+    <p>解析：{{ question.explanation|render_explanation }}</p>
+  {% endif %}
+
+  <div style="display:flex; gap: 8px;">
+    <form method="post" action="{{ url_for('prev_practice', category_id=category.id) }}">
+      <button type="submit">上一题</button>
+    </form>
+    <form method="post" action="{{ url_for('next_practice', category_id=category.id) }}">
+      <button type="submit">下一题</button>
+    </form>
+    {% if wrong %}
+      <form method="post" action="{{ url_for('wrong_remove', question_id=question.id) }}">
+        <button type="submit">从错题库移除</button>
+      </form>
+    {% else %}
+      <form method="post" action="{{ url_for('wrong_add', question_id=question.id) }}">
+        <button type="submit">加入错题库</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+

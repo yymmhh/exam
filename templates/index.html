@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}首页 - 刷题系统{% endblock %}
+{% block content %}
+<h2>题库大类</h2>
+{% for c in categories %}
+  <div class="card">
+    <h3>{{ c.name }}</h3>
+    <div class="muted">{{ c.description }}</div>
+    <div>题目数：{{ c.questions|length }}</div>
+  </div>
+{% else %}
+  <p>暂无题库，请管理员先创建。</p>
+{% endfor %}
+{% endblock %}

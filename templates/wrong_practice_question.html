@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}错题练习{% endblock %}
+{% block content %}
+<h2>错题练习</h2>
+<p>第 {{ index }} / {{ total }} 题</p>
+
+<div class="card">
+  <h3>答题卡</h3>
+  <div style="display:flex; flex-wrap:wrap; gap:6px;">
+    {% for q in questions %}
+      {% set s = statuses.get(q.id) %}
+      {% set idx = loop.index %}
+      {% set is_current = (idx == current_index) %}
+      {% set is_done = (s and s.answered) %}
+      <form method="post" action="{{ url_for('wrong_practice_goto', session_id=session.id) }}" style="display:inline;">
+        <input type="hidden" name="target" value="{{ idx }}">
+        <button type="submit"
+                style="min-width:44px; 
+                {% if is_current %}font-weight:bold;{% endif %}
+                {% if is_done %}background:#e7f8ee; border-color:#b7e7c6; color:#146c2e;{% endif %}">
+          {{ idx }}
+        </button>
+      </form>
+    {% endfor %}
+  </div>
+  <p class="muted" style="margin-top:10px;">绿色表示已作答，粗体表示当前题。</p>
+</div>
+
+<div class="card">
+  <h3>{{ question.stem|render_stem }}</h3>
+  <form method="post" action="{{ url_for('wrong_practice_submit', session_id=session.id, index=index) }}">
+    {% if question.qtype in ['single', 'multiple'] %}
+      {% for choice in question.choices|sort(attribute='option_key') %}
+        <p>
+          <label>
+            <input type="{{ 'checkbox' if question.qtype == 'multiple' else 'radio' }}" name="answer" value="{{ choice.option_key }}">
+            {{ choice.option_key }}. {{ choice.option_text|safe }}
+          </label>
+        </p>
+      {% endfor %}
+    {% else %}
+      <p><input name="answer" placeholder="请输入填空答案"></p>
+    {% endif %}
+    <p><button type="submit">{{ '提交并完成' if index == total else '提交下一题' }}</button></p>
+  </form>
+
+  {% if status and status.answered %}
+    <hr>
+    <p>你的答案：{{ status.answer }}</p>
+    <p>正确答案：{{ question.correct_answer }}</p>
+    <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
+    <p>解析：{{ question.explanation|render_explanation }}</p>
+  {% endif %}
+
+  <div class="row" style="margin-top:12px;">
+    {% if wrong %}
+      <form method="post" action="{{ url_for('wrong_remove', question_id=question.id) }}">
+        <button type="submit" class="btn-light">从错题库移除</button>
+      </form>
+    {% else %}
+      <form method="post" action="{{ url_for('wrong_add', question_id=question.id) }}">
+        <button type="submit" class="btn-light">加入错题库</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+

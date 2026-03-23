@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}用户管理{% endblock %}
+{% block content %}
+<h2>用户管理</h2>
+
+<div class="row" style="margin-bottom:12px;">
+  <a href="{{ url_for('admin_home') }}" class="btn-light" style="text-decoration:none; padding:8px 12px; border:1px solid #d1d5db; border-radius:8px;">返回管理首页</a>
+</div>
+
+{% for u in users %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between;">
+      <div>
+        <p style="margin:0;"><strong>{{ u.username }}</strong></p>
+        <p class="muted" style="margin:6px 0 0;">{{ '管理员' if u.is_admin else '普通用户' }}</p>
+      </div>
+      <div>
+        <form method="post" action="{{ url_for('admin_toggle_user', user_id=u.id) }}">
+          <button type="submit" class="btn-light">
+            切换为{{ '普通用户' if u.is_admin else '管理员' }}
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <p>暂无用户。</p>
+{% endfor %}
+{% endblock %}
+

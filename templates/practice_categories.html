@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}选择题库{% endblock %}
+{% block content %}
+<h2>选择练习题库</h2>
+{% for c in categories %}
+  <div class="card">
+    <h3>{{ c.name }}</h3>
+    <p>{{ c.description }}</p>
+    {% set p = progress.get(c.id) %}
+    <p class="muted">
+      进度：{{ p.done if p else 0 }} / {{ p.total if p else 0 }} 已作答
+    </p>
+    <a href="{{ url_for('practice_question', category_id=c.id) }}">进入练习</a>
+  </div>
+{% else %}
+  <p>暂无题库。</p>
+{% endfor %}
+{% endblock %}

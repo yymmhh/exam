@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}题目管理 - {{ category.name }}{% endblock %}
+{% block content %}
+<h2>题目管理 - {{ category.name }}</h2>
+<p><a href="{{ url_for('admin_home') }}">返回管理首页</a></p>
+
+{% for q in questions %}
+  <div class="card">
+    <p><strong>#{{ q.id }}</strong> [{{ q.qtype }}] {{ q.stem|render_stem }}</p>
+    <p class="muted">答案：{{ q.correct_answer }}</p>
+    <div style="display:flex; gap:10px;">
+      <a href="{{ url_for('admin_question_edit', question_id=q.id) }}">编辑题目</a>
+      <form method="post" action="{{ url_for('admin_question_delete', question_id=q.id) }}">
+        <button type="submit">删除题目</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <p>该分类暂无题目。</p>
+{% endfor %}
+{% endblock %}
+

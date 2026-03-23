@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}考试结果{% endblock %}
+{% block content %}
+<h2>考试结果</h2>
+<div class="card">
+  <p>
+    分类：
+    {% if session.scope == 'all' %}全部题库{% else %}{{ session.category.name }}{% endif %}
+  </p>
+  <p>总题数：{{ session.total_count }}</p>
+  <p>答对：{{ session.correct_count }}</p>
+  <p>分数：{{ session.score }}</p>
+  <p>是否及格：{{ '是' if session.passed else '否' }}</p>
+</div>
+{% for item in questions %}
+  <div class="card">
+    <h4>{{ item.order_index + 1 }}. {{ item.question.stem|render_stem }}</h4>
+    <p>你的答案：{{ item.user_answer or '未作答' }}</p>
+    <p>正确答案：{{ item.question.correct_answer }}</p>
+    <p>结果：{{ '正确' if item.is_correct else '错误' }}</p>
+  </div>
+{% endfor %}
+{% endblock %}
+

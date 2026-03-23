@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}错题练习完成{% endblock %}
+{% block content %}
+<h2>错题练习完成</h2>
+
+<div class="card">
+  <p>共 {{ session.total_count }} 题</p>
+  <p>答对 {{ correct_count }} 题</p>
+</div>
+
+<div class="card">
+  <div class="row">
+    <a href="{{ url_for('wrong_list') }}" class="btn-light" style="text-decoration:none;">返回错题库</a>
+    <a href="{{ url_for('wrong_practice_start') }}" class="btn-light" style="text-decoration:none;">再次开始练习</a>
+  </div>
+</div>
+{% endblock %}
+
