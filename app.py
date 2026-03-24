@@ -1341,7 +1341,6 @@ def random_practice_question(session_id, index):
         index=index,
     )
 
-
 @app.post("/random-practice/<int:session_id>/<int:index>/submit")
 @login_required
 def random_practice_submit(session_id, index):
@@ -1400,14 +1399,54 @@ def random_practice_submit(session_id, index):
     
     db.session.commit()
     
-    if index >= session.total_count:
+    if question.qtype == "blank":
+        flash("填空题已提交，请对比答案并自行评估。", "info")
+    else:
+        flash("回答正确！" if is_correct else "回答错误，已可加入错题库。", "success" if is_correct else "error")
+    
+    # 停留在当前页面，让用户查看解析后自己选择下一题
+    return redirect(url_for("random_practice_question", session_id=session.id, index=index))
+
+
+@app.post("/random-practice/<int:session_id>/<int:index>/next")
+@login_required
+def random_practice_next(session_id, index):
+    """下一题"""
+    session = db.session.get(RandomPracticeSession, session_id)
+    if not session or session.user_id != current_user.id:
+        flash("练习不存在。", "error")
+        return redirect(url_for("random_practice_start"))
+    
+    if session.status != "in_progress":
+        return redirect(url_for("random_practice_finish", session_id=session.id))
+    
+    next_index = index + 1
+    if next_index > session.total_count:
+        # 已经是最后一题，完成练习
         session.status = "finished"
         db.session.commit()
         return redirect(url_for("random_practice_finish", session_id=session.id))
     
-    session.current_index = index
+    session.current_index = next_index - 1
     db.session.commit()
-    return redirect(url_for("random_practice_question", session_id=session.id, index=index + 1))
+    return redirect(url_for("random_practice_question", session_id=session.id, index=next_index))
+
+@app.post("/random-practice/<int:session_id>/<int:index>/prev")
+@login_required
+def random_practice_prev(session_id, index):
+    """上一题"""
+    session = db.session.get(RandomPracticeSession, session_id)
+    if not session or session.user_id != current_user.id:
+        flash("练习不存在。", "error")
+        return redirect(url_for("random_practice_start"))
+    
+    if session.status != "in_progress":
+        return redirect(url_for("random_practice_finish", session_id=session.id))
+    
+    prev_index = max(1, index - 1)
+    session.current_index = prev_index - 1
+    db.session.commit()
+    return redirect(url_for("random_practice_question", session_id=session.id, index=prev_index))
 
 
 @app.post("/random-practice/<int:session_id>/goto")

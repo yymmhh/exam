@@ -14,11 +14,35 @@
 </div>
 {% for item in questions %}
   <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
+      <div style="font-size:14px; color:#6c757d;">
+        <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
+          📚 {{ item.question.category.name }}
+        </span>
+        <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
+          🔖 ID: {{ item.question.id }}
+        </span>
+      </div>
+      <div style="font-size:13px; color:#6c757d;">
+        {% if item.question.qtype == 'single' %}单选题
+        {% elif item.question.qtype == 'multiple' %}多选题
+        {% elif item.question.qtype == 'blank' %}填空题
+        {% endif %}
+      </div>
+    </div>
+    
     <h4>{{ item.order_index + 1 }}. {{ item.question.stem|render_stem }}</h4>
     <p>你的答案：{{ item.user_answer or '未作答' }}</p>
     <p>正确答案：{{ item.question.correct_answer }}</p>
-    <p>结果：{{ '正确' if item.is_correct else '错误' }}</p>
+    <p>结果：{{ '正确 ✓' if item.is_correct else '错误 ✗' }}</p>
+    
+    <p>解析：{{ item.question.explanation|render_explanation }}</p>
+    {% if item.question.ai_explanation %}
+    <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff; border-radius:6px;">
+      <p style="margin:0 0 10px 0; font-weight:bold; color:#007bff;">🤖 AI 解析：</p>
+      <div class="markdown-body">{{ item.question.ai_explanation|render_markdown }}</div>
+    </div>
+    {% endif %}
   </div>
 {% endfor %}
 {% endblock %}
-

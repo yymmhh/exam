@@ -70,7 +70,7 @@
     {% else %}
       <p><input name="answer" placeholder="请输入填空答案" style="width: 100%;"></p>
     {% endif %}
-    <p><button type="submit">{{ '提交并完成' if index == total else '提交下一题' }}</button></p>
+    <p><button type="submit">提交答案</button></p>
   </form>
 
   {% if status and status.answered %}
@@ -114,12 +114,11 @@
   {% endif %}
 
   <div style="display:flex; gap: 8px; margin-top:12px;">
-    <form method="post" action="{{ url_for('random_practice_goto', session_id=session.id) }}">
-      <input type="hidden" name="target" value="{{ index - 1 }}">
+    <form method="post" action="{{ url_for('random_practice_prev', session_id=session.id, index=index) }}">
       <button type="submit" {% if index == 1 %}disabled{% endif %}>上一题</button>
     </form>
-    <form method="post" action="{{ url_for('random_practice_submit', session_id=session.id, index=index) }}">
-      <button type="submit">{{ '提交并完成' if index == total else '提交下一题' }}</button>
+    <form method="post" action="{{ url_for('random_practice_next', session_id=session.id, index=index) }}">
+      <button type="submit">{{ '完成练习' if index == total else '下一题' }}</button>
     </form>
   </div>
 </div>
