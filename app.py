@@ -87,7 +87,7 @@ class UserQuestionStatus(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     question_id = db.Column(db.Integer, db.ForeignKey("question.id"), nullable=False)
     answered = db.Column(db.Boolean, default=False)
-    is_correct = db.Column(db.Boolean, default=False)
+    is_correct = db.Column(db.Boolean, default=None, nullable=True)
     answer = db.Column(db.String(300), default="")
     last_answered_at = db.Column(db.DateTime, default=datetime.utcnow)
 
@@ -422,12 +422,15 @@ def submit_practice(category_id):
         user_id=current_user.id, question_id=question.id
     ).first()
     if not status:
-        status = UserQuestionStatus(user_id=current_user.id, question_id=question.id)
+        # 填空题需要显式设置 is_correct=None，避免使用默认值 False
+        status = UserQuestionStatus(
+            user_id=current_user.id, 
+            question_id=question.id,
+            is_correct=is_correct  # 填空题为 None，避免使用默认值 False
+        )
         db.session.add(status)
     status.answered = True
-    status.is_correct = is_correct  # 填空题为 None
-    status.answer = answer
-    status.last_answered_at = datetime.utcnow()
+    status.is_correct = is_correct
 
     # 只有非填空题才自动加入错题库
     if is_correct is False:
