@@ -19,7 +19,7 @@ from flask_login import (
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 from markupsafe import Markup, escape
-
+import markdown
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "replace-this-in-production"
@@ -1210,6 +1210,29 @@ def mark_wrong(question_id):
         flash("已标记为错误并加入错题库", "info")
     
     return redirect(request.referrer or url_for("practice_question", category_id=question.category_id))
+
+@app.template_filter("render_markdown")
+def render_markdown(text: str) -> Markup:
+    """
+    将 Markdown 文本渲染为 HTML。
+    支持常见的 Markdown 语法：标题、列表、代码块、链接、图片等。
+    """
+    if not text:
+        return Markup("")
+    
+    # 使用 markdown 库转换为 HTML
+    html_content = markdown.markdown(
+        text,
+        extensions=[
+            'extra',           # 支持表格、定义列表等
+            'codehilite',      # 代码高亮
+            'toc',             # 目录生成
+            'nl2br',           # 换行转 <br>
+        ],
+        output_format='html5'
+    )
+    
+    return Markup(html_content)
 
 
 if __name__ == "__main__":

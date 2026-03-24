@@ -4,22 +4,38 @@
 <h2>{{ category.name }} 练习</h2>
 <p>第 {{ current_index }} / {{ total }} 题</p>
 
-<div class="card">
-  <h3>答题卡</h3>
-  <div style="display:flex; flex-wrap:wrap; gap:6px;">
-    {% for q in questions %}
-      {% set s = statuses.get(q.id) %}
-      {% set idx = loop.index %}
-      <form method="post" action="{{ url_for('goto_practice', category_id=category.id) }}" style="display:inline;">
-        <input type="hidden" name="target" value="{{ idx }}">
-        <button type="submit"
-                style="min-width:44px; {% if idx == current_index %}font-weight:bold;{% endif %}{% if s and s.answered %}{% if s.is_correct %}background:#e7f8ee;{% elif s.is_correct == false %}background:#fee; color:#c00;{% else %}background:#fff3cd;{% endif %}{% endif %}">
-          {{ idx }}
-        </button>
-      </form>
-    {% endfor %}
+<!-- 答题卡按钮 -->
+<button type="button" onclick="toggleAnswerSheet()" style="margin-bottom:12px; background:#6c757d; border-color:#6c757d;">
+  📋 答题卡
+</button>
+
+<!-- 答题卡弹窗 -->
+<div id="answerSheetModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;" onclick="if(event.target===this) toggleAnswerSheet()">
+  <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:white; border-radius:12px; padding:24px; max-width:90%; max-height:90vh; overflow-y:auto; min-width:400px; box-shadow:0 10px 40px rgba(0,0,0,0.3);">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h3 style="margin:0;">📋 答题卡</h3>
+      <button type="button" onclick="toggleAnswerSheet()" style="background:none; border:none; font-size:24px; cursor:pointer; color:#666; padding:0; line-height:1;">&times;</button>
+    </div>
+    <div style="display:flex; flex-wrap:wrap; gap:6px;">
+      {% for q in questions %}
+        {% set s = statuses.get(q.id) %}
+        {% set idx = loop.index %}
+        <form method="post" action="{{ url_for('goto_practice', category_id=category.id) }}" style="display:inline;">
+          <input type="hidden" name="target" value="{{ idx }}">
+          <button type="submit"
+                  style="min-width:44px; {% if idx == current_index %}font-weight:bold; border:2px solid #2563eb;{% endif %}{% if s and s.answered %}{% if s.is_correct %}background:#e7f8ee; color:#146c2e;{% elif s.is_correct == false %}background:#fee; color:#c00;{% else %}background:#fff3cd; color:#856404;{% endif %}{% else %}background:#f8f9fa; color:#495057;{% endif %}">
+            {{ idx }}
+          </button>
+        </form>
+      {% endfor %}
+    </div>
+    <p class="muted" style="margin-top:16px; font-size:13px;">
+      🟢 绿色：已作答且正确 | 
+      🔴 红色：已作答但错误 | 
+      🟡 黄色：待确认（填空题） | 
+      <strong>粗体蓝框</strong>：当前题
+    </p>
   </div>
-  <p class="muted">绿色表示已作答且正确，红色表示已作答但错误，黄色表示待确认（填空题），粗体表示当前题。</p>
 </div>
 
 <div class="card">
@@ -72,9 +88,9 @@
     
     <p>解析：{{ question.explanation|render_explanation }}</p>
     {% if question.ai_explanation %}
-    <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff;">
+    <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff; border-radius:6px;">
       <p style="margin:0 0 10px 0; font-weight:bold; color:#007bff;">🤖 AI 解析：</p>
-      <div>{{ question.ai_explanation|safe }}</div>
+      <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
     </div>
     {% endif %}
   {% endif %}
@@ -99,4 +115,27 @@
     {% endif %}
   </div>
 </div>
+
+<script>
+function toggleAnswerSheet() {
+  var modal = document.getElementById('answerSheetModal');
+  if (modal.style.display === 'none') {
+    modal.style.display = 'block';
+    document.body.style.overflow = 'hidden'; // 禁止背景滚动
+  } else {
+    modal.style.display = 'none';
+    document.body.style.overflow = '';
+  }
+}
+
+// ESC 键关闭弹窗
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    var modal = document.getElementById('answerSheetModal');
+    if (modal.style.display === 'block') {
+      toggleAnswerSheet();
+    }
+  }
+});
+</script>
 {% endblock %}
