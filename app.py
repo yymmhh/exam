@@ -153,6 +153,31 @@ class WrongPracticeQuestion(db.Model):
     question = db.relationship("Question")
 
 
+class RandomPracticeSession(db.Model):
+    """随机练习会话"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    total_count = db.Column(db.Integer, nullable=False)
+    current_index = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(20), default="in_progress")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class RandomPracticeQuestion(db.Model):
+    """随机练习题目"""
+    id = db.Column(db.Integer, primary_key=True)
+    session_id = db.Column(db.Integer, db.ForeignKey("random_practice_session.id"), nullable=False)
+    question_id = db.Column(db.Integer, db.ForeignKey("question.id"), nullable=False)
+    order_index = db.Column(db.Integer, nullable=False)
+    user_answer = db.Column(db.String(300), default="")
+    is_correct = db.Column(db.Boolean, default=None, nullable=True)
+
+    session = db.relationship(
+        "RandomPracticeSession", backref=db.backref("random_practice_questions", lazy=True)
+    )
+    question = db.relationship("Question")
+
+
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
@@ -431,6 +456,8 @@ def submit_practice(category_id):
         db.session.add(status)
     status.answered = True
     status.is_correct = is_correct
+    status.answer = answer
+    status.last_answered_at = datetime.utcnow()
 
     # 只有非填空题才自动加入错题库
     if is_correct is False:
@@ -1154,6 +1181,275 @@ def init_db():
             admin.set_password("admin123")
             db.session.add(admin)
             db.session.commit()
+
+def get_smart_random_questions(user_id: int, count: int = 10) -> list:
+    """
+    智能抽取题目：优先未做过的，平衡各分类数量
+    """
+    all_categories = Category.query.all()
+    if not all_categories:
+        return []
+    
+    # 获取用户已做过的题目 ID
+    done_question_ids = set(
+        s.question_id for s in UserQuestionStatus.query.filter_by(user_id=user_id, answered=True).all()
+    )
+    
+    # 按分类统计题目
+    category_questions = {}
+    for cat in all_categories:
+        all_qs = Question.query.filter_by(category_id=cat.id).all()
+        undone_qs = [q for q in all_qs if q.id not in done_question_ids]
+        category_questions[cat.id] = {
+            'category': cat,
+            'all': all_qs,
+            'undone': undone_qs
+        }
+    
+    # 计算每个分类应该抽取的数量（平均分配）
+    total_categories = len(all_categories)
+    base_count = count // total_categories
+    extra_count = count % total_categories
+    
+    selected_questions = []
+    
+    # 第一轮：从未做过的题目中抽取
+    remaining_extra = extra_count
+    for idx, (cat_id, data) in enumerate(category_questions.items()):
+        # 本分类需要抽取的数量
+        cat_target = base_count + (1 if idx < remaining_extra else 0)
+        
+        # 优先从未做过的题目中抽取
+        undone_available = len(data['undone'])
+        if undone_available >= cat_target:
+            # 未做过的足够，直接抽取
+            selected = random.sample(data['undone'], cat_target)
+            selected_questions.extend(selected)
+        else:
+            # 未做过的不够，先用未做过的，再用已做过的补充
+            selected_questions.extend(data['undone'])
+            remaining_needed = cat_target - undone_available
+            
+            # 从已做过的题目中随机补充
+            done_available = [q for q in data['all'] if q.id in done_question_ids]
+            if done_available:
+                additional = random.sample(done_available, min(remaining_needed, len(done_available)))
+                selected_questions.extend(additional)
+    
+    # 如果还没凑够，从所有题目中随机补充
+    if len(selected_questions) < count:
+        remaining = count - len(selected_questions)
+        selected_ids = set(q.id for q in selected_questions)
+        all_remaining = [q for q in Question.query.all() if q.id not in selected_ids]
+        if all_remaining:
+            additional = random.sample(all_remaining, min(remaining, len(all_remaining)))
+            selected_questions.extend(additional)
+    
+    # 打乱顺序并限制数量
+    random.shuffle(selected_questions)
+    return selected_questions[:count]
+
+
+@app.route("/random-practice/start", methods=["GET", "POST"])
+@login_required
+def random_practice_start():
+    """开始随机练习"""
+    if request.method == "POST":
+        count = int(request.form.get("count", "10"))
+        
+        # 智能抽取题目
+        picked = get_smart_random_questions(current_user.id, count)
+        
+        if not picked:
+            flash("暂无题目，无法开始练习。", "error")
+            return redirect(url_for("index"))
+        
+        # 创建练习会话
+        session = RandomPracticeSession(
+            user_id=current_user.id,
+            total_count=len(picked),
+            current_index=0,
+        )
+        db.session.add(session)
+        db.session.flush()
+        
+        # 添加题目到会话
+        for idx, q in enumerate(picked):
+            db.session.add(
+                RandomPracticeQuestion(session_id=session.id, question_id=q.id, order_index=idx)
+            )
+        db.session.commit()
+        
+        return redirect(url_for("random_practice_question", session_id=session.id, index=1))
+    
+    return render_template("random_practice_start.html")
+
+
+@app.route("/random-practice/<int:session_id>/<int:index>")
+@login_required
+def random_practice_question(session_id, index):
+    """随机练习题目页面"""
+    session = db.session.get(RandomPracticeSession, session_id)
+    if not session or session.user_id != current_user.id:
+        flash("练习不存在。", "error")
+        return redirect(url_for("random_practice_start"))
+    
+    if session.status != "in_progress":
+        return redirect(url_for("random_practice_finish", session_id=session.id))
+    
+    total = session.total_count
+    if index < 1 or index > total:
+        return redirect(url_for("random_practice_question", session_id=session_id, index=1))
+    
+    if session.current_index != index - 1:
+        session.current_index = index - 1
+        db.session.commit()
+    
+    eq = RandomPracticeQuestion.query.filter_by(
+        session_id=session_id, order_index=index - 1
+    ).first()
+    if not eq:
+        flash("题目不存在。", "error")
+        return redirect(url_for("random_practice_question", session_id=session_id, index=1))
+    
+    # 获取所有题目用于答题卡
+    items = RandomPracticeQuestion.query.filter_by(session_id=session_id).order_by(
+        RandomPracticeQuestion.order_index.asc()
+    ).all()
+    questions = [it.question for it in items]
+    
+    # 获取答题状态
+    question_ids = [it.question_id for it in items]
+    statuses = {
+        s.question_id: s
+        for s in UserQuestionStatus.query.filter_by(user_id=current_user.id)
+        .filter(UserQuestionStatus.question_id.in_(question_ids)).all()
+    }
+    
+    # 获取当前题的答题状态
+    status = statuses.get(eq.question_id)
+    
+    return render_template(
+        "random_practice_question.html",
+        session=session,
+        question=eq.question,
+        questions=questions,
+        statuses=statuses,
+        status=status,
+        current_index=session.current_index + 1,
+        total=total,
+        index=index,
+    )
+
+
+@app.post("/random-practice/<int:session_id>/<int:index>/submit")
+@login_required
+def random_practice_submit(session_id, index):
+    """提交随机练习答案"""
+    session = db.session.get(RandomPracticeSession, session_id)
+    if not session or session.user_id != current_user.id or session.status != "in_progress":
+        flash("练习状态无效。", "error")
+        return redirect(url_for("random_practice_start"))
+    
+    eq = RandomPracticeQuestion.query.filter_by(
+        session_id=session_id, order_index=index - 1
+    ).first()
+    if not eq:
+        flash("题目不存在。", "error")
+        return redirect(url_for("random_practice_question", session_id=session_id, index=1))
+    
+    question = eq.question
+    if question.qtype == "multiple":
+        raw = request.form.getlist("answer")
+    else:
+        raw = request.form.get("answer", "")
+    answer = normalize_answer(question.qtype, raw)
+    
+    # 填空题不自动判断对错
+    is_correct = None if question.qtype == "blank" else check_answer(question, answer)
+    
+    eq.user_answer = answer
+    eq.is_correct = is_correct
+    
+    status = UserQuestionStatus.query.filter_by(
+        user_id=current_user.id, question_id=question.id
+    ).first()
+    if not status:
+        status = UserQuestionStatus(
+            user_id=current_user.id, 
+            question_id=question.id,
+            is_correct=is_correct
+        )
+        db.session.add(status)
+    status.answered = True
+    status.is_correct = is_correct
+    status.answer = answer
+    status.last_answered_at = datetime.utcnow()
+    
+    # 错题库逻辑
+    wrong = WrongQuestion.query.filter_by(
+        user_id=current_user.id, question_id=question.id
+    ).first()
+    
+    if is_correct is True:
+        if wrong:
+            db.session.delete(wrong)
+    elif is_correct is False:
+        if not wrong:
+            db.session.add(WrongQuestion(user_id=current_user.id, question_id=question.id))
+    
+    db.session.commit()
+    
+    if index >= session.total_count:
+        session.status = "finished"
+        db.session.commit()
+        return redirect(url_for("random_practice_finish", session_id=session.id))
+    
+    session.current_index = index
+    db.session.commit()
+    return redirect(url_for("random_practice_question", session_id=session.id, index=index + 1))
+
+
+@app.post("/random-practice/<int:session_id>/goto")
+@login_required
+def random_practice_goto(session_id):
+    """跳转到指定题目"""
+    session = db.session.get(RandomPracticeSession, session_id)
+    if not session or session.user_id != current_user.id:
+        flash("练习不存在。", "error")
+        return redirect(url_for("random_practice_start"))
+    if session.status != "in_progress":
+        return redirect(url_for("random_practice_finish", session_id=session.id))
+    
+    target = request.form.get("target", "").strip()
+    if not target.isdigit():
+        return redirect(url_for("random_practice_question", session_id=session_id, index=1))
+    idx = int(target) - 1
+    idx = max(0, min(idx, session.total_count - 1))
+    session.current_index = idx
+    db.session.commit()
+    return redirect(url_for("random_practice_question", session_id=session_id, index=idx + 1))
+
+
+@app.route("/random-practice/<int:session_id>/finish")
+@login_required
+def random_practice_finish(session_id):
+    """随机练习完成页面"""
+    session = db.session.get(RandomPracticeSession, session_id)
+    if not session or session.user_id != current_user.id:
+        flash("练习不存在。", "error")
+        return redirect(url_for("random_practice_start"))
+    
+    correct_count = RandomPracticeQuestion.query.filter_by(
+        session_id=session.id, is_correct=True
+    ).count()
+    
+    return render_template(
+        "random_practice_finish.html",
+        session=session,
+        correct_count=correct_count,
+    )
+
 
 @app.post("/practice/mark-mastered/<int:question_id>")
 @login_required

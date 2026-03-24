@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}练习完成{% endblock %}
+{% block content %}
+<h2>🎉 随机练习完成！</h2>
+
+<div class="card" style="text-align:center; padding:32px;">
+  <div style="font-size:48px; margin-bottom:16px;">📊</div>
+  <h3>练习结果</h3>
+  <p style="font-size:18px; color:#666;">共 {{ session.total_count }} 道题</p>
+  
+  <div style="display:flex; justify-content:center; gap:32px; margin:24px 0;">
+    <div style="text-align:center;">
+      <div style="font-size:36px; color:#28a745; font-weight:bold;">{{ correct_count }}</div>
+      <div style="color:#666;">正确</div>
+    </div>
+    <div style="text-align:center;">
+      <div style="font-size:36px; color:#dc3545; font-weight:bold;">{{ session.total_count - correct_count }}</div>
+      <div style="color:#666;">错误/待确认</div>
+    </div>
+  </div>
+  
+  {% if session.total_count > 0 %}
+    {% set accuracy = (correct_count / session.total_count * 100)|round(1) %}
+    <div style="background:#f8f9fa; padding:16px; border-radius:8px; margin:20px 0;">
+      <div style="font-size:24px; color:#007bff; font-weight:bold;">{{ accuracy }}%</div>
+      <div style="color:#666;">正确率</div>
+    </div>
+  {% endif %}
+  
+  <div style="display:flex; justify-content:center; gap:12px; margin-top:24px;">
+    <a href="{{ url_for('random_practice_start') }}" 
+       style="display:inline-block; background:#28a745; color:white; padding:12px 24px; border-radius:8px; text-decoration:none;">
+      🔄 再来一组
+    </a>
+    <a href="{{ url_for('wrong_list') }}" 
+       style="display:inline-block; background:#ffc107; color:#1f2937; padding:12px 24px; border-radius:8px; text-decoration:none;">
+      📕 查看错题库
+    </a>
+    <a href="{{ url_for('index') }}" 
+       style="display:inline-block; background:#6c757d; color:white; padding:12px 24px; border-radius:8px; text-decoration:none;">
+      🏠 返回首页
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <h3>💡 学习建议</h3>
+  <ul style="line-height: 2;">
+    <li>及时复习错题，查漏补缺</li>
+    <li>针对薄弱的知识点进行专项练习</li>
+    <li>定期回顾，巩固记忆</li>
+    <li>保持每天练习的习惯</li>
+  </ul>
+</div>
+{% endblock %}

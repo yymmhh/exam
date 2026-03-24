@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block title %}练习 - {{ category.name }}{% endblock %}
+{% block title %}随机练习 - 第{{ index }}题{% endblock %}
 {% block content %}
-<h2>{{ category.name }} 练习</h2>
+<h2>🎲 随机练习</h2>
 <p>第 {{ current_index }} / {{ total }} 题</p>
 
 <!-- 答题卡按钮 -->
@@ -20,7 +20,7 @@
       {% for q in questions %}
         {% set s = statuses.get(q.id) %}
         {% set idx = loop.index %}
-        <form method="post" action="{{ url_for('goto_practice', category_id=category.id) }}" style="display:inline;">
+        <form method="post" action="{{ url_for('random_practice_goto', session_id=session.id) }}" style="display:inline;">
           <input type="hidden" name="target" value="{{ idx }}">
           <button type="submit"
                   style="min-width:44px; {% if idx == current_index %}font-weight:bold; border:2px solid #2563eb;{% endif %}{% if s and s.answered %}{% if s.is_correct %}background:#e7f8ee; color:#146c2e;{% elif s.is_correct == false %}background:#fee; color:#c00;{% else %}background:#fff3cd; color:#856404;{% endif %}{% else %}background:#f8f9fa; color:#495057;{% endif %}">
@@ -42,7 +42,7 @@
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
     <div style="font-size:14px; color:#6c757d;">
       <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
-        📚 {{ category.name }}
+        📚 {{ question.category.name }}
       </span>
       <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
         🔖 ID: {{ question.id }}
@@ -57,8 +57,7 @@
   </div>
   
   <h3>{{ question.stem|render_stem }}</h3>
-  <form method="post" action="{{ url_for('submit_practice', category_id=category.id) }}">
-    <input type="hidden" name="question_id" value="{{ question.id }}">
+  <form method="post" action="{{ url_for('random_practice_submit', session_id=session.id, index=index) }}">
     {% if question.qtype in ['single', 'multiple'] %}
       {% for choice in question.choices|sort(attribute='option_key') %}
         <p>
@@ -71,7 +70,7 @@
     {% else %}
       <p><input name="answer" placeholder="请输入填空答案" style="width: 100%;"></p>
     {% endif %}
-    <p><button type="submit">提交答案</button></p>
+    <p><button type="submit">{{ '提交并完成' if index == total else '提交下一题' }}</button></p>
   </form>
 
   {% if status and status.answered %}
@@ -80,24 +79,26 @@
     <p>正确答案：{{ question.correct_answer }}</p>
     
     {% if question.qtype == 'blank' %}
-      {% if status.is_correct is none %}
+      {% if status.is_correct == None or status.is_correct == '' %}
         <p style="padding:10px; background:#fff3cd; border-left:3px solid #ffc107;">
           <strong>📝 待确认：</strong>请对比上方答案，自行评估是否正确
         </p>
         <div style="display:flex; gap:8px; margin-top:10px;">
           <form method="post" action="{{ url_for('mark_mastered', question_id=question.id) }}">
             <button type="submit" style="background:#28a745; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
-              ✓ 我答对了（标记为已掌握）
+              ✓ 我答对了
             </button>
           </form>
           <form method="post" action="{{ url_for('mark_wrong', question_id=question.id) }}">
             <button type="submit" style="background:#dc3545; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
-              ✗ 我答错了（加入错题库）
+              ✗ 我答错了
             </button>
           </form>
         </div>
+      {% elif status.is_correct %}
+        <p>结果：正确 ✓</p>
       {% else %}
-        <p>结果：{{ '正确 ✓' if status.is_correct else '错误 ✗' }}</p>
+        <p>结果：错误 ✗</p>
       {% endif %}
     {% else %}
       <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
@@ -112,24 +113,14 @@
     {% endif %}
   {% endif %}
 
-  <div style="display:flex; gap: 8px;">
-    <form method="post" action="{{ url_for('prev_practice', category_id=category.id) }}">
-      <button type="submit">上一题</button>
+  <div style="display:flex; gap: 8px; margin-top:12px;">
+    <form method="post" action="{{ url_for('random_practice_goto', session_id=session.id) }}">
+      <input type="hidden" name="target" value="{{ index - 1 }}">
+      <button type="submit" {% if index == 1 %}disabled{% endif %}>上一题</button>
     </form>
-    <form method="post" action="{{ url_for('next_practice', category_id=category.id) }}">
-      <button type="submit">下一题</button>
+    <form method="post" action="{{ url_for('random_practice_submit', session_id=session.id, index=index) }}">
+      <button type="submit">{{ '提交并完成' if index == total else '提交下一题' }}</button>
     </form>
-    {% if question.qtype != 'blank' %}
-      {% if wrong %}
-        <form method="post" action="{{ url_for('wrong_remove', question_id=question.id) }}">
-          <button type="submit">从错题库移除</button>
-        </form>
-      {% else %}
-        <form method="post" action="{{ url_for('wrong_add', question_id=question.id) }}">
-          <button type="submit">加入错题库</button>
-        </form>
-      {% endif %}
-    {% endif %}
   </div>
 </div>
 
@@ -138,14 +129,13 @@ function toggleAnswerSheet() {
   var modal = document.getElementById('answerSheetModal');
   if (modal.style.display === 'none') {
     modal.style.display = 'block';
-    document.body.style.overflow = 'hidden'; // 禁止背景滚动
+    document.body.style.overflow = 'hidden';
   } else {
     modal.style.display = 'none';
     document.body.style.overflow = '';
   }
 }
 
-// ESC 键关闭弹窗
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     var modal = document.getElementById('answerSheetModal');

@@ -1,7 +1,16 @@
 {% extends "base.html" %}
 {% block title %}首页 - 刷题系统{% endblock %}
 {% block content %}
-<h2>题库大类</h2>
+<div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:white; padding:24px;">
+  <h2 style="color:white; margin:0 0 12px 0;">🎲 随机刷题</h2>
+  <p style="margin:0 0 16px 0; opacity:0.9;">智能抽题，均衡分类，优先未做过的题目</p>
+  <a href="{{ url_for('random_practice_start') }}" 
+     style="display:inline-block; background:white; color:#667eea; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:bold;">
+    立即开始 →
+  </a>
+</div>
+
+<h2 style="margin-top:24px;">题库大类</h2>
 {% for c in categories %}
   <div class="card">
     <h3>{{ c.name }}</h3>

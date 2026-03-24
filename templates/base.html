@@ -286,6 +286,7 @@
         <a href="{{ url_for('index') }}">首页</a>
         {% if current_user.is_authenticated %}
           <a href="{{ url_for('practice_categories') }}">练习</a>
+          <a href="{{ url_for('random_practice_start') }}">🎲 随机刷题</a>
           <a href="{{ url_for('wrong_list') }}">错题库</a>
           <a href="{{ url_for('exam_start') }}">模拟考试</a>
           {% if current_user.is_admin %}

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}随机刷题{% endblock %}
+{% block content %}
+<h2>🎲 随机刷题</h2>
+
+<div class="card">
+  <h3>智能抽题策略</h3>
+  <ul style="line-height: 2;">
+    <li>✅ <strong>优先未做过</strong>：优先抽取您还未练习过的题目</li>
+    <li>✅ <strong>均衡分类</strong>：自动平衡各个题库的题目数量</li>
+    <li>✅ <strong>智能补充</strong>：未做过的题目不足时，从已做过的题目中随机补充</li>
+  </ul>
+</div>
+
+<div class="card">
+  <h3>设置抽题数量</h3>
+  <form method="post" action="{{ url_for('random_practice_start') }}">
+    <div style="margin-bottom: 16px;">
+      <label style="display:block; margin-bottom:8px;">
+        计划抽取题目数量：
+      </label>
+      <input type="number" name="count" value="10" min="1" max="100" 
+             style="width: 200px; font-size: 18px; padding: 8px;" 
+             placeholder="输入题目数量">
+      <p class="muted" style="margin-top:8px; font-size:14px;">
+        建议：10-20 道题（约 15-30 分钟）
+      </p>
+    </div>
+    
+    <button type="submit" style="background:#28a745; border-color:#28a745; padding:12px 24px; font-size:16px;">
+      🚀 开始随机练习
+    </button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>💡 使用建议</h3>
+  <ul style="line-height: 1.8;">
+    <li>适合考前模拟和日常巩固</li>
+    <li>系统会自动记录您的答题情况</li>
+    <li>答错的题目会自动加入错题库</li>
+    <li>填空题需要自行判断对错</li>
+  </ul>
+</div>
+{% endblock %}

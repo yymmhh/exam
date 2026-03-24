@@ -42,6 +42,23 @@
 </div>
 
 <div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
+    <div style="font-size:14px; color:#6c757d;">
+      <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
+        📚 {{ question.category.name }}
+      </span>
+      <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
+        🔖 ID: {{ question.id }}
+      </span>
+    </div>
+    <div style="font-size:13px; color:#6c757d;">
+      {% if question.qtype == 'single' %}单选题
+      {% elif question.qtype == 'multiple' %}多选题
+      {% elif question.qtype == 'blank' %}填空题
+      {% endif %}
+    </div>
+  </div>
+  
   <h3>{{ question.stem|render_stem }}</h3>
   <form method="post" action="{{ url_for('wrong_practice_submit', session_id=session.id, index=index) }}">
     {% if question.qtype in ['single', 'multiple'] %}
