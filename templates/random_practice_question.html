@@ -47,6 +47,11 @@
       <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
         🔖 ID: {{ question.id }}
       </span>
+      {% if is_wrong_review %}
+        <span style="background:#fff3cd; padding:4px 8px; border-radius:4px; color:#856404;">
+          ⚠️ 这题你做过
+        </span>
+      {% endif %}
     </div>
     <div style="font-size:13px; color:#6c757d;">
       {% if question.qtype == 'single' %}单选题
@@ -56,8 +61,8 @@
     </div>
   </div>
   
-  {# 如果是做过的错题，在题目前显示警告 #}
-  {% if status and status.answered and not status.is_correct %}
+  {# 如果是错题重做，显示提醒 #}
+  {% if is_wrong_review %}
     <div style="padding:12px; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px; margin-bottom:16px;">
       <strong style="color:#856404;">⚠️ 注意：</strong>
       <span style="color:#856404;">这是你做过的错题，请认真思考后再作答！</span>
@@ -81,9 +86,9 @@
     <p><button type="submit">提交答案</button></p>
   </form>
 
-  {% if status and status.answered %}
+  {% if status %}
     <hr>
-    <p>你的答案：{{ status.answer }}</p>
+    <p>你的答案：{{ status.user_answer }}</p>
     <p>正确答案：{{ question.correct_answer }}</p>
     
     {% if question.qtype == 'blank' %}

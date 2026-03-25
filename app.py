@@ -171,12 +171,12 @@ class RandomPracticeQuestion(db.Model):
     order_index = db.Column(db.Integer, nullable=False)
     user_answer = db.Column(db.String(300), default="")
     is_correct = db.Column(db.Boolean, default=None, nullable=True)
+    is_wrong_review = db.Column(db.Boolean, default=False)  # 标记是否是错题重做
 
     session = db.relationship(
         "RandomPracticeSession", backref=db.backref("random_practice_questions", lazy=True)
     )
     question = db.relationship("Question")
-
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -1176,6 +1176,14 @@ def init_db():
             )
             db.session.commit()
         
+        # 检查并添加 is_wrong_review 字段
+        random_practice_question_columns = [col["name"] for col in inspector.get_columns("random_practice_question")]
+        if "is_wrong_review" not in random_practice_question_columns:
+            db.session.execute(
+                sql_text("ALTER TABLE random_practice_question ADD COLUMN is_wrong_review BOOLEAN DEFAULT 0")
+            )
+            db.session.commit()
+        
         if not User.query.filter_by(username="admin").first():
             admin = User(username="admin", is_admin=True)
             admin.set_password("admin123")
@@ -1189,18 +1197,16 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
     Args:
         user_id: 用户 ID
         count: 抽取数量
-        include_wrong: 是否包含做过的错题
+        include_wrong: 是否包含少量错题（每分类 1 道，总共约 1-2 道）
     """
     all_categories = Category.query.all()
     if not all_categories:
         return []
     
-    # 获取用户已做过的题目 ID
+    # 获取用户已做过的题目 ID 和错题 ID
     done_question_ids = set(
         s.question_id for s in UserQuestionStatus.query.filter_by(user_id=user_id, answered=True).all()
     )
-    
-    # 获取用户的错题 ID
     wrong_question_ids = set(
         w.question_id for w in WrongQuestion.query.filter_by(user_id=user_id).all()
     )
@@ -1209,22 +1215,23 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
     category_questions = {}
     for cat in all_categories:
         all_qs = Question.query.filter_by(category_id=cat.id).all()
+        
+        # 分类 1：未做过的题目
         undone_qs = [q for q in all_qs if q.id not in done_question_ids]
         
-        # 如果需要包含错题，将错题也加入候选池
-        if include_wrong and wrong_question_ids:
-            wrong_in_category = [q for q in all_qs if q.id in wrong_question_ids]
-            # 错题优先，然后是未做过的
-            candidate_qs = wrong_in_category + [q for q in undone_qs if q.id not in wrong_question_ids]
-        else:
-            candidate_qs = undone_qs
+        # 分类 2：已做过且答对的题目（排除错题）
+        done_correct_qs = [q for q in all_qs 
+                          if q.id in done_question_ids and q.id not in wrong_question_ids]
+        
+        # 分类 3：错题（如果允许包含）
+        wrong_qs = [q for q in all_qs if q.id in wrong_question_ids]
         
         category_questions[cat.id] = {
             'category': cat,
             'all': all_qs,
             'undone': undone_qs,
-            'wrong': [q for q in all_qs if q.id in wrong_question_ids],
-            'candidates': candidate_qs
+            'done_correct': done_correct_qs,
+            'wrong': wrong_qs if include_wrong else []  # 只有勾选才包含错题
         }
     
     # 计算每个分类应该抽取的数量（平均分配）
@@ -1234,42 +1241,52 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
     
     selected_questions = []
     
-    # 第一轮：从候选题目中抽取
+    # 第一轮：按策略抽题
     remaining_extra = extra_count
     for idx, (cat_id, data) in enumerate(category_questions.items()):
         # 本分类需要抽取的数量
         cat_target = base_count + (1 if idx < remaining_extra else 0)
         
-        # 从候选题目中抽取（优先错题，然后未做过的）
-        candidates = data['candidates']
-        if len(candidates) >= cat_target:
-            selected = random.sample(candidates, cat_target)
-            selected_questions.extend(selected)
+        # 如果勾选包含错题，每分类最多抽 1 道错题
+        wrong_count = 1 if include_wrong and data['wrong'] else 0
+        
+        # 剩余数量从未做过的和已答对的中抽取
+        remaining_from_normal = cat_target - wrong_count
+        
+        # 优先从未做过的抽取
+        undone_available = len(data['undone'])
+        if undone_available >= remaining_from_normal:
+            normal_selected = random.sample(data['undone'], remaining_from_normal)
         else:
-            # 候选不够，先用候选，再用其他已做过但不是错题的题目补充
-            selected_questions.extend(candidates)
-            remaining_needed = cat_target - len(candidates)
-            
-            # 从已做过但不是错题的题目中随机补充
-            done_not_wrong = [q for q in data['all'] 
-                             if q.id in done_question_ids and q.id not in wrong_question_ids]
-            if done_not_wrong:
-                additional = random.sample(done_not_wrong, min(remaining_needed, len(done_not_wrong)))
-                selected_questions.extend(additional)
+            # 未做过的不够，用已答对的补充
+            normal_selected = data['undone'][:]
+            still_needed = remaining_from_normal - undone_available
+            correct_additional = random.sample(data['done_correct'], 
+                                              min(still_needed, len(data['done_correct'])))
+            normal_selected.extend(correct_additional)
+        
+        # 如果需要错题，抽 1 道
+        wrong_selected = []
+        if wrong_count > 0 and data['wrong']:
+            wrong_selected = random.sample(data['wrong'], 1)
+        
+        # 合并该分类的题目
+        selected_questions.extend(normal_selected)
+        selected_questions.extend(wrong_selected)
     
-    # 如果还没凑够，从所有题目中随机补充
+    # 如果还没凑够，从所有未做题中随机补充
     if len(selected_questions) < count:
         remaining = count - len(selected_questions)
         selected_ids = set(q.id for q in selected_questions)
-        all_remaining = [q for q in Question.query.all() if q.id not in selected_ids]
-        if all_remaining:
-            additional = random.sample(all_remaining, min(remaining, len(all_remaining)))
+        all_undone = [q for q in Question.query.all() 
+                     if q.id not in selected_ids and q.id not in done_question_ids]
+        if all_undone:
+            additional = random.sample(all_undone, min(remaining, len(all_undone)))
             selected_questions.extend(additional)
     
     # 打乱顺序并限制数量
     random.shuffle(selected_questions)
     return selected_questions[:count]
-
 
 @app.route("/random-practice/start", methods=["GET", "POST"])
 @login_required
@@ -1286,6 +1303,11 @@ def random_practice_start():
             flash("暂无题目，无法开始练习。", "error")
             return redirect(url_for("index"))
         
+        # 获取用户的错题 ID 集合
+        wrong_question_ids = set(
+            w.question_id for w in WrongQuestion.query.filter_by(user_id=current_user.id).all()
+        )
+        
         # 创建练习会话
         session = RandomPracticeSession(
             user_id=current_user.id,
@@ -1295,10 +1317,16 @@ def random_practice_start():
         db.session.add(session)
         db.session.flush()
         
-        # 添加题目到会话
+        # 添加题目到会话，并标记是否是错题
         for idx, q in enumerate(picked):
+            is_wrong = q.id in wrong_question_ids
             db.session.add(
-                RandomPracticeQuestion(session_id=session.id, question_id=q.id, order_index=idx)
+                RandomPracticeQuestion(
+                    session_id=session.id, 
+                    question_id=q.id, 
+                    order_index=idx,
+                    is_wrong_review=is_wrong  # 标记是否是错题重做
+                )
             )
         db.session.commit()
         
@@ -1340,28 +1368,28 @@ def random_practice_question(session_id, index):
     ).all()
     questions = [it.question for it in items]
     
-    # 获取答题状态
-    question_ids = [it.question_id for it in items]
-    statuses = {
-        s.question_id: s
-        for s in UserQuestionStatus.query.filter_by(user_id=current_user.id)
-        .filter(UserQuestionStatus.question_id.in_(question_ids)).all()
+    # 获取本次练习的答题状态（用于答题卡显示）
+    practice_statuses = {
+        it.question_id: it
+        for it in items if it.user_answer  # 只要在本次练习中作答过
     }
     
-    # 获取当前题的答题状态
-    status = statuses.get(eq.question_id)
+    # 判断当前题是否是错题重做
+    is_wrong_review = eq.is_wrong_review
     
     return render_template(
         "random_practice_question.html",
         session=session,
         question=eq.question,
         questions=questions,
-        statuses=statuses,
-        status=status,
+        statuses=practice_statuses,  # 使用本次练习的状态
+        status=None if not eq.user_answer else eq,  # 只在已作答时传入状态
+        is_wrong_review=is_wrong_review,
         current_index=session.current_index + 1,
         total=total,
         index=index,
     )
+
 
 @app.post("/random-practice/<int:session_id>/<int:index>/submit")
 @login_required
@@ -1392,6 +1420,7 @@ def random_practice_submit(session_id, index):
     eq.user_answer = answer
     eq.is_correct = is_correct
     
+    # 更新用户总状态
     status = UserQuestionStatus.query.filter_by(
         user_id=current_user.id, question_id=question.id
     ).first()
@@ -1428,6 +1457,7 @@ def random_practice_submit(session_id, index):
     
     # 停留在当前页面，让用户查看解析后自己选择下一题
     return redirect(url_for("random_practice_question", session_id=session.id, index=index))
+
 
 
 @app.post("/random-practice/<int:session_id>/<int:index>/next")
