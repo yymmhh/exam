@@ -81,11 +81,15 @@
 
   {% if status %}
     <hr>
-    <p>你的答案：{{ status.user_answer }}</p>
+    <p>你的答案：{{ status.user_answer if status.user_answer else '（未作答）' }}</p>
     <p>正确答案：{{ question.correct_answer }}</p>
     
     {% if question.qtype == 'blank' %}
-      {% if status.is_correct == None or status.is_correct == '' %}
+      {% if not status.user_answer or not status.user_answer.strip() %}
+        <p style="padding:10px; background:#fff3cd; border-left:3px solid #ffc107;">
+          <strong>⚠️ 提示：</strong>你未作答此题，请查看答案解析
+        </p>
+      {% elif status.is_correct == None or status.is_correct == '' %}
         <div class="pending-notice">
           <strong>📝 待确认：</strong>请对比上方答案，自行评估是否正确
         </div>

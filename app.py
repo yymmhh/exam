@@ -1190,9 +1190,10 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
 
+
 def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: bool = False) -> list:
     """
-    智能抽取题目：优先未做过的，平衡各分类数量
+    智能抽取题目：优先未做过的，适当照顾分类覆盖率
     
     Args:
         user_id: 用户 ID
@@ -1211,7 +1212,7 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
         w.question_id for w in WrongQuestion.query.filter_by(user_id=user_id).all()
     )
     
-    # 按分类统计题目
+    # 先构建分类数据
     category_questions = {}
     for cat in all_categories:
         all_qs = Question.query.filter_by(category_id=cat.id).all()
@@ -1223,8 +1224,8 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
         done_correct_qs = [q for q in all_qs 
                           if q.id in done_question_ids and q.id not in wrong_question_ids]
         
-        # 分类 3：错题
-        wrong_qs = [q for q in all_qs if q.id in wrong_question_ids]
+        # 分类 3：错题（如果勾选包含）
+        wrong_qs = [q for q in all_qs if q.id in wrong_question_ids] if include_wrong else []
         
         category_questions[cat.id] = {
             'category': cat,
@@ -1234,65 +1235,92 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
             'wrong': wrong_qs
         }
     
-    # 如果勾选包含错题，总共只抽 1-2 道错题
+    # 计算错题数量
     total_wrong_needed = 0
     if include_wrong and wrong_question_ids:
-        # 根据总题数决定错题数量：10 道以内抽 1 道，10 道以上抽 2 道
         total_wrong_needed = min(2, max(1, count // 10))
     
-    # 计算每个分类应该抽取的数量（平均分配）
-    total_categories = len(all_categories)
-    base_count = (count - total_wrong_needed) // total_categories
-    extra_count = (count - total_wrong_needed) % total_categories
+    # 需要抽取的非错题数量
+    normal_count = count - total_wrong_needed
     
     selected_questions = []
-    selected_wrong_count = 0
+    selected_ids = set()
     
-    # 第一轮：先按分类抽取非错题（未做过 + 已答对）
-    remaining_extra = extra_count
-    for idx, (cat_id, data) in enumerate(category_questions.items()):
-        # 本分类需要抽取的非错题数量
-        cat_target = base_count + (1 if idx < remaining_extra else 0)
-        
-        # 优先从未做过的抽取
-        undone_available = len(data['undone'])
-        if undone_available >= cat_target:
-            normal_selected = random.sample(data['undone'], cat_target)
-        else:
-            # 未做过的不够，用已答对的补充
-            normal_selected = data['undone'][:]
-            still_needed = cat_target - undone_available
-            if data['done_correct']:
-                correct_additional = random.sample(data['done_correct'], 
-                                                  min(still_needed, len(data['done_correct'])))
-                normal_selected.extend(correct_additional)
-        
-        selected_questions.extend(normal_selected)
+    # 策略 1：确保覆盖有未做题的分类（每个分类至少 1 道，如果题目够的话）
+    categories_with_undone = [cat_id for cat_id, data in category_questions.items() 
+                             if data['undone']]
     
-    # 第二轮：从所有分类中随机抽取 1-2 道错题
+    if categories_with_undone:
+        # 先从未做过的题目中，每个分类抽 1 道
+        for cat_id in categories_with_undone:
+            data = category_questions[cat_id]
+            if data['undone']:
+                selected = random.choice(data['undone'])
+                if selected.id not in selected_ids and len(selected_questions) < normal_count:
+                    selected_questions.append(selected)
+                    selected_ids.add(selected.id)
+    
+    # 策略 2：如果还没抽够，按分类平均分配继续抽
+    remaining = normal_count - len(selected_questions)
+    if remaining > 0:
+        total_categories = len(all_categories)
+        base_count = remaining // total_categories
+        extra_count = remaining % total_categories
+        
+        remaining_extra = extra_count
+        for idx, (cat_id, data) in enumerate(category_questions.items()):
+            cat_target = base_count + (1 if idx < remaining_extra else 0)
+            
+            if cat_target <= 0:
+                continue
+            
+            # 优先从未做过的抽取（排除已选的）
+            undone_available = len([q for q in data['undone'] if q.id not in selected_ids])
+            if undone_available >= cat_target:
+                available_undone = [q for q in data['undone'] if q.id not in selected_ids]
+                normal_selected = random.sample(available_undone, cat_target)
+                selected_questions.extend(normal_selected)
+                selected_ids.update(q.id for q in normal_selected)
+            elif undone_available > 0:
+                # 未做过的不够，全部选上
+                available_undone = [q for q in data['undone'] if q.id not in selected_ids]
+                selected_questions.extend(available_undone)
+                selected_ids.update(q.id for q in available_undone)
+                still_needed = cat_target - undone_available
+                
+                # 用已答对的补充
+                available_correct = [q for q in data['done_correct'] if q.id not in selected_ids]
+                if available_correct and still_needed > 0:
+                    correct_additional = random.sample(available_correct, 
+                                                      min(still_needed, len(available_correct)))
+                    selected_questions.extend(correct_additional)
+                    selected_ids.update(q.id for q in correct_additional)
+    
+    # 策略 3：如果还没凑够，从所有未做过的题目中随机抽取
+    if len(selected_questions) < normal_count:
+        remaining = normal_count - len(selected_questions)
+        all_undone_remaining = [q for cat_id, data in category_questions.items() 
+                               for q in data['undone'] if q.id not in selected_ids]
+        if all_undone_remaining:
+            additional = random.sample(all_undone_remaining, min(remaining, len(all_undone_remaining)))
+            selected_questions.extend(additional)
+            selected_ids.update(q.id for q in additional)
+    
+    # 策略 4：抽取错题（如果需要）
     if total_wrong_needed > 0:
         all_wrongs = [q for cat_id, data in category_questions.items() 
-                     for q in data['wrong']]
+                     for q in data['wrong'] if q.id not in selected_ids]
         
         if all_wrongs:
             wrong_selected = random.sample(all_wrongs, 
                                           min(total_wrong_needed, len(all_wrongs)))
             selected_questions.extend(wrong_selected)
-            selected_wrong_count = len(wrong_selected)
-    
-    # 如果还没凑够，从所有未做题中随机补充
-    if len(selected_questions) < count:
-        remaining = count - len(selected_questions)
-        selected_ids = set(q.id for q in selected_questions)
-        all_undone = [q for q in Question.query.all() 
-                     if q.id not in selected_ids and q.id not in done_question_ids]
-        if all_undone:
-            additional = random.sample(all_undone, min(remaining, len(all_undone)))
-            selected_questions.extend(additional)
     
     # 打乱顺序并限制数量
     random.shuffle(selected_questions)
     return selected_questions[:count]
+
+
 
 @app.route("/random-practice/start", methods=["GET", "POST"])
 @login_required
@@ -1402,7 +1430,6 @@ def random_practice_question(session_id, index):
         index=index,
     )
 
-
 @app.post("/random-practice/<int:session_id>/<int:index>/submit")
 @login_required
 def random_practice_submit(session_id, index):
@@ -1463,7 +1490,10 @@ def random_practice_submit(session_id, index):
     db.session.commit()
     
     if question.qtype == "blank":
-        flash("填空题已提交，请对比答案并自行评估。", "info")
+        if not answer or not answer.strip():
+            flash("填空题未作答，请查看答案解析。", "warning")
+        else:
+            flash("填空题已提交，请对比答案并自行评估。", "info")
     else:
         flash("回答正确！" if is_correct else "回答错误，已可加入错题库。", "success" if is_correct else "error")
     
