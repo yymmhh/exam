@@ -56,6 +56,14 @@
     </div>
   </div>
   
+  {# 如果是做过的错题，在题目前显示警告 #}
+  {% if status and status.answered and not status.is_correct %}
+    <div style="padding:12px; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px; margin-bottom:16px;">
+      <strong style="color:#856404;">⚠️ 注意：</strong>
+      <span style="color:#856404;">这是你做过的错题，请认真思考后再作答！</span>
+    </div>
+  {% endif %}
+  
   <h3>{{ question.stem|render_stem }}</h3>
   <form method="post" action="{{ url_for('random_practice_submit', session_id=session.id, index=index) }}">
     {% if question.qtype in ['single', 'multiple'] %}
