@@ -1197,7 +1197,7 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
     Args:
         user_id: 用户 ID
         count: 抽取数量
-        include_wrong: 是否包含少量错题（每分类 1 道，总共约 1-2 道）
+        include_wrong: 是否包含少量错题（总共 1-2 道）
     """
     all_categories = Category.query.all()
     if not all_categories:
@@ -1223,7 +1223,7 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
         done_correct_qs = [q for q in all_qs 
                           if q.id in done_question_ids and q.id not in wrong_question_ids]
         
-        # 分类 3：错题（如果允许包含）
+        # 分类 3：错题
         wrong_qs = [q for q in all_qs if q.id in wrong_question_ids]
         
         category_questions[cat.id] = {
@@ -1231,48 +1231,54 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
             'all': all_qs,
             'undone': undone_qs,
             'done_correct': done_correct_qs,
-            'wrong': wrong_qs if include_wrong else []  # 只有勾选才包含错题
+            'wrong': wrong_qs
         }
+    
+    # 如果勾选包含错题，总共只抽 1-2 道错题
+    total_wrong_needed = 0
+    if include_wrong and wrong_question_ids:
+        # 根据总题数决定错题数量：10 道以内抽 1 道，10 道以上抽 2 道
+        total_wrong_needed = min(2, max(1, count // 10))
     
     # 计算每个分类应该抽取的数量（平均分配）
     total_categories = len(all_categories)
-    base_count = count // total_categories
-    extra_count = count % total_categories
+    base_count = (count - total_wrong_needed) // total_categories
+    extra_count = (count - total_wrong_needed) % total_categories
     
     selected_questions = []
+    selected_wrong_count = 0
     
-    # 第一轮：按策略抽题
+    # 第一轮：先按分类抽取非错题（未做过 + 已答对）
     remaining_extra = extra_count
     for idx, (cat_id, data) in enumerate(category_questions.items()):
-        # 本分类需要抽取的数量
+        # 本分类需要抽取的非错题数量
         cat_target = base_count + (1 if idx < remaining_extra else 0)
-        
-        # 如果勾选包含错题，每分类最多抽 1 道错题
-        wrong_count = 1 if include_wrong and data['wrong'] else 0
-        
-        # 剩余数量从未做过的和已答对的中抽取
-        remaining_from_normal = cat_target - wrong_count
         
         # 优先从未做过的抽取
         undone_available = len(data['undone'])
-        if undone_available >= remaining_from_normal:
-            normal_selected = random.sample(data['undone'], remaining_from_normal)
+        if undone_available >= cat_target:
+            normal_selected = random.sample(data['undone'], cat_target)
         else:
             # 未做过的不够，用已答对的补充
             normal_selected = data['undone'][:]
-            still_needed = remaining_from_normal - undone_available
-            correct_additional = random.sample(data['done_correct'], 
-                                              min(still_needed, len(data['done_correct'])))
-            normal_selected.extend(correct_additional)
+            still_needed = cat_target - undone_available
+            if data['done_correct']:
+                correct_additional = random.sample(data['done_correct'], 
+                                                  min(still_needed, len(data['done_correct'])))
+                normal_selected.extend(correct_additional)
         
-        # 如果需要错题，抽 1 道
-        wrong_selected = []
-        if wrong_count > 0 and data['wrong']:
-            wrong_selected = random.sample(data['wrong'], 1)
-        
-        # 合并该分类的题目
         selected_questions.extend(normal_selected)
-        selected_questions.extend(wrong_selected)
+    
+    # 第二轮：从所有分类中随机抽取 1-2 道错题
+    if total_wrong_needed > 0:
+        all_wrongs = [q for cat_id, data in category_questions.items() 
+                     for q in data['wrong']]
+        
+        if all_wrongs:
+            wrong_selected = random.sample(all_wrongs, 
+                                          min(total_wrong_needed, len(all_wrongs)))
+            selected_questions.extend(wrong_selected)
+            selected_wrong_count = len(wrong_selected)
     
     # 如果还没凑够，从所有未做题中随机补充
     if len(selected_questions) < count:
@@ -1377,14 +1383,20 @@ def random_practice_question(session_id, index):
     # 判断当前题是否是错题重做
     is_wrong_review = eq.is_wrong_review
     
+    # 获取历史状态（仅用于参考，不显示在页面上）
+    historical_status = UserQuestionStatus.query.filter_by(
+        user_id=current_user.id, question_id=eq.question.id
+    ).first()
+    
     return render_template(
         "random_practice_question.html",
         session=session,
         question=eq.question,
         questions=questions,
-        statuses=practice_statuses,  # 使用本次练习的状态
-        status=None if not eq.user_answer else eq,  # 只在已作答时传入状态
+        statuses=practice_statuses,  # 本次练习的答题状态
+        status=None if not eq.user_answer else eq,  # 当前题的状态（用于显示解析）
         is_wrong_review=is_wrong_review,
+        historical_status=historical_status,
         current_index=session.current_index + 1,
         total=total,
         index=index,

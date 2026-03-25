@@ -5,25 +5,25 @@
 <p>第 {{ current_index }} / {{ total }} 题</p>
 
 <!-- 答题卡按钮 -->
-<button type="button" onclick="toggleAnswerSheet()" style="margin-bottom:12px; background:#6c757d; border-color:#6c757d;">
+<button type="button" onclick="toggleAnswerSheet()" class="answer-sheet-btn">
   📋 答题卡
 </button>
 
 <!-- 答题卡弹窗 -->
-<div id="answerSheetModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000;" onclick="if(event.target===this) toggleAnswerSheet()">
-  <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:white; border-radius:12px; padding:24px; max-width:90%; max-height:90vh; overflow-y:auto; min-width:400px; box-shadow:0 10px 40px rgba(0,0,0,0.3);">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+<div id="answerSheetModal" class="answer-sheet-modal" onclick="if(event.target===this) toggleAnswerSheet()">
+  <div class="answer-sheet-content">
+    <div class="question-info-bar">
       <h3 style="margin:0;">📋 答题卡</h3>
       <button type="button" onclick="toggleAnswerSheet()" style="background:none; border:none; font-size:24px; cursor:pointer; color:#666; padding:0; line-height:1;">&times;</button>
     </div>
-    <div style="display:flex; flex-wrap:wrap; gap:6px;">
+    <div class="answer-sheet-grid">
       {% for q in questions %}
         {% set s = statuses.get(q.id) %}
         {% set idx = loop.index %}
-        <form method="post" action="{{ url_for('random_practice_goto', session_id=session.id) }}" style="display:inline;">
+        <form method="post" action="{{ url_for('random_practice_goto', session_id=session.id) }}" class="answer-sheet-btn-item">
           <input type="hidden" name="target" value="{{ idx }}">
-          <button type="submit"
-                  style="min-width:44px; {% if idx == current_index %}font-weight:bold; border:2px solid #2563eb;{% endif %}{% if s and s.answered %}{% if s.is_correct %}background:#e7f8ee; color:#146c2e;{% elif s.is_correct == false %}background:#fee; color:#c00;{% else %}background:#fff3cd; color:#856404;{% endif %}{% else %}background:#f8f9fa; color:#495057;{% endif %}">
+          <button type="submit" 
+                  class="{% if idx == current_index %}current {% endif %}{% if s and s.user_answer %}{% if s.is_correct %}correct{% elif s.is_correct == false %}wrong{% else %}pending{% endif %}{% endif %}">
             {{ idx }}
           </button>
         </form>
@@ -39,21 +39,15 @@
 </div>
 
 <div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
-    <div style="font-size:14px; color:#6c757d;">
-      <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
-        📚 {{ question.category.name }}
-      </span>
-      <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
-        🔖 ID: {{ question.id }}
-      </span>
+  <div class="question-info-bar">
+    <div class="question-meta">
+      <span class="badge-category">📚 {{ question.category.name }}</span>
+      <span class="badge-id">🔖 ID: {{ question.id }}</span>
       {% if is_wrong_review %}
-        <span style="background:#fff3cd; padding:4px 8px; border-radius:4px; color:#856404;">
-          ⚠️ 这题你做过
-        </span>
+        <span class="badge-wrong-review">⚠️ 这题你做过</span>
       {% endif %}
     </div>
-    <div style="font-size:13px; color:#6c757d;">
+    <div class="badge-type">
       {% if question.qtype == 'single' %}单选题
       {% elif question.qtype == 'multiple' %}多选题
       {% elif question.qtype == 'blank' %}填空题
@@ -61,11 +55,10 @@
     </div>
   </div>
   
-  {# 如果是错题重做，显示提醒 #}
   {% if is_wrong_review %}
-    <div style="padding:12px; background:#fff3cd; border-left:4px solid #ffc107; border-radius:4px; margin-bottom:16px;">
-      <strong style="color:#856404;">⚠️ 注意：</strong>
-      <span style="color:#856404;">这是你做过的错题，请认真思考后再作答！</span>
+    <div class="wrong-review-notice">
+      <strong>⚠️ 注意：</strong>
+      <span>这是你做过的错题，请认真思考后再作答！</span>
     </div>
   {% endif %}
   
@@ -93,19 +86,15 @@
     
     {% if question.qtype == 'blank' %}
       {% if status.is_correct == None or status.is_correct == '' %}
-        <p style="padding:10px; background:#fff3cd; border-left:3px solid #ffc107;">
+        <div class="pending-notice">
           <strong>📝 待确认：</strong>请对比上方答案，自行评估是否正确
-        </p>
-        <div style="display:flex; gap:8px; margin-top:10px;">
+        </div>
+        <div class="self-assessment-buttons">
           <form method="post" action="{{ url_for('mark_mastered', question_id=question.id) }}">
-            <button type="submit" style="background:#28a745; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
-              ✓ 我答对了
-            </button>
+            <button type="submit" class="btn-success">✓ 我答对了</button>
           </form>
           <form method="post" action="{{ url_for('mark_wrong', question_id=question.id) }}">
-            <button type="submit" style="background:#dc3545; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
-              ✗ 我答错了
-            </button>
+            <button type="submit" class="btn-danger">✗ 我答错了</button>
           </form>
         </div>
       {% elif status.is_correct %}
@@ -119,14 +108,14 @@
     
     <p>解析：{{ question.explanation|render_explanation }}</p>
     {% if question.ai_explanation %}
-    <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff; border-radius:6px;">
-      <p style="margin:0 0 10px 0; font-weight:bold; color:#007bff;">🤖 AI 解析：</p>
+    <div class="ai-explanation-box">
+      <p class="ai-explanation-title">🤖 AI 解析：</p>
       <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
     </div>
     {% endif %}
   {% endif %}
 
-  <div style="display:flex; gap: 8px; margin-top:12px;">
+  <div class="navigation-buttons">
     <form method="post" action="{{ url_for('random_practice_prev', session_id=session.id, index=index) }}">
       <button type="submit" {% if index == 1 %}disabled{% endif %}>上一题</button>
     </form>
