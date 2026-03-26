@@ -2,32 +2,64 @@
 {% block title %}错题库{% endblock %}
 {% block content %}
 <h2>我的错题库</h2>
+
 <div class="card">
-  <div class="row" style="justify-content:space-between;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
     <div>
-      <p style="margin:0;">可以直接对错题进行练习。</p>
-      <p class="muted" style="margin:6px 0 0;">从错题库中抽出全部题目进行顺序练习。</p>
+      <p style="margin:0; font-size:18px; font-weight:bold;">
+        📊 共 {{ wrongs|length }} 道错题
+      </p>
+      <p class="muted" style="margin:6px 0 0;">可以直接对错题进行练习。</p>
+      <p class="muted" style="margin:4px 0 0;">从错题库中抽出全部题目进行顺序练习。</p>
     </div>
     <a
       href="{{ url_for('wrong_practice_start') }}"
       class="{% if wrongs|length == 0 %}btn-light{% endif %}"
-      style="text-decoration:none; padding:8px 12px; border-radius:8px; border:1px solid #d1d5db; background:#fff;"
+      style="text-decoration:none; padding:10px 16px; border-radius:8px; border:1px solid #d1d5db; background:#fff; font-weight:500;"
       >开始错题练习
     </a>
   </div>
 </div>
+
 {% for wrong, q, c in wrongs %}
   <div class="card">
-    <div class="muted">分类：{{ c.name }}</div>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
+      <div style="font-size:14px; color:#6c757d;">
+        <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
+          📚 {{ c.name }}
+        </span>
+        <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
+          🔖 ID: {{ q.id }}
+        </span>
+      </div>
+      <div style="font-size:13px; color:#6c757d;">
+        {% if q.qtype == 'single' %}单选题
+        {% elif q.qtype == 'multiple' %}多选题
+        {% elif q.qtype == 'blank' %}填空题
+        {% endif %}
+      </div>
+    </div>
+    
     <h3>{{ q.stem|render_stem }}</h3>
     <p>正确答案：{{ q.correct_answer }}</p>
     <p>解析：{{ q.explanation|render_explanation }}</p>
-    <form method="post" action="{{ url_for('wrong_remove', question_id=q.id) }}">
-      <button type="submit">移除</button>
+    
+    {% if q.ai_explanation %}
+    <div class="ai-explanation-box">
+      <p class="ai-explanation-title">🤖 AI 解析：</p>
+      <div class="markdown-body">{{ q.ai_explanation|render_markdown }}</div>
+    </div>
+    {% endif %}
+    
+    <form method="post" action="{{ url_for('wrong_remove', question_id=q.id) }}" style="margin-top:12px;">
+      <button type="submit" style="background:#dc3545; border-color:#dc3545;">移除</button>
     </form>
   </div>
 {% else %}
-  <p>错题库为空。</p>
+  <div class="card">
+    <p style="text-align:center; color:#6c757d; padding:20px;">
+      🎉 错题库为空，太棒了！
+    </p>
+  </div>
 {% endfor %}
 {% endblock %}
-
