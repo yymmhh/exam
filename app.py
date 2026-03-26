@@ -1623,7 +1623,6 @@ def random_practice_finish(session_id):
         correct_count=correct_count,
     )
 
-
 @app.post("/practice/mark-mastered/<int:question_id>")
 @login_required
 def mark_mastered(question_id):
@@ -1633,6 +1632,7 @@ def mark_mastered(question_id):
         flash("题目不存在。", "error")
         return redirect(url_for("index"))
     
+    # 更新用户总状态
     status = UserQuestionStatus.query.filter_by(
         user_id=current_user.id, question_id=question_id
     ).first()
@@ -1654,6 +1654,7 @@ def mark_mastered(question_id):
     return redirect(request.referrer or url_for("practice_question", category_id=question.category_id))
 
 
+
 @app.post("/practice/mark-wrong/<int:question_id>")
 @login_required
 def mark_wrong(question_id):
@@ -1663,6 +1664,7 @@ def mark_wrong(question_id):
         flash("题目不存在。", "error")
         return redirect(url_for("index"))
     
+    # 更新用户总状态
     status = UserQuestionStatus.query.filter_by(
         user_id=current_user.id, question_id=question_id
     ).first()
@@ -1709,4 +1711,4 @@ def render_markdown(text: str) -> Markup:
 
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)

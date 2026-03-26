@@ -79,17 +79,20 @@
     <p><button type="submit">提交答案</button></p>
   </form>
 
-  {% if status %}
+ {% if status %}
     <hr>
     <p>你的答案：{{ status.user_answer if status.user_answer else '（未作答）' }}</p>
     <p>正确答案：{{ question.correct_answer }}</p>
     
     {% if question.qtype == 'blank' %}
+      {# 获取用户总状态用于判断是否待确认 #}
+      {% set user_status = historical_status %}
+      
       {% if not status.user_answer or not status.user_answer.strip() %}
         <p style="padding:10px; background:#fff3cd; border-left:3px solid #ffc107;">
           <strong>⚠️ 提示：</strong>你未作答此题，请查看答案解析
         </p>
-      {% elif status.is_correct == None or status.is_correct == '' %}
+      {% elif user_status and (user_status.is_correct == None or user_status.is_correct == '') %}
         <div class="pending-notice">
           <strong>📝 待确认：</strong>请对比上方答案，自行评估是否正确
         </div>
@@ -101,9 +104,9 @@
             <button type="submit" class="btn-danger">✗ 我答错了</button>
           </form>
         </div>
-      {% elif status.is_correct %}
+      {% elif user_status and user_status.is_correct %}
         <p>结果：正确 ✓</p>
-      {% else %}
+      {% elif user_status and user_status.is_correct == false %}
         <p>结果：错误 ✗</p>
       {% endif %}
       
