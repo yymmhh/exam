@@ -106,16 +106,24 @@
       {% else %}
         <p>结果：错误 ✗</p>
       {% endif %}
+      
+      {# 填空题无论是否作答都显示解析 #}
+      <p>解析：{{ question.explanation|render_explanation }}</p>
+      {% if question.ai_explanation %}
+      <div class="ai-explanation-box">
+        <p class="ai-explanation-title">🤖 AI 解析：</p>
+        <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
+      </div>
+      {% endif %}
     {% else %}
       <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
-    {% endif %}
-    
-    <p>解析：{{ question.explanation|render_explanation }}</p>
-    {% if question.ai_explanation %}
-    <div class="ai-explanation-box">
-      <p class="ai-explanation-title">🤖 AI 解析：</p>
-      <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
-    </div>
+      <p>解析：{{ question.explanation|render_explanation }}</p>
+      {% if question.ai_explanation %}
+      <div class="ai-explanation-box">
+        <p class="ai-explanation-title">🤖 AI 解析：</p>
+        <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
+      </div>
+      {% endif %}
     {% endif %}
   {% endif %}
 
