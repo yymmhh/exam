@@ -3,8 +3,10 @@ import random
 import re
 import html
 from datetime import datetime
-
-from flask import Flask, flash, redirect, render_template, request, url_for
+import os
+import uuid
+from werkzeug.utils import secure_filename
+from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
 from sqlalchemy import func
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy import text as sql_text
@@ -29,6 +31,61 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
+
+
+# 允许的图片和最大大小
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB
+
+app.config['MAX_CONTENT_LENGTH'] = MAX_CONTENT_LENGTH
+app.config['UPLOAD_FOLDER'] = 'static/exam_images'
+
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.post("/admin/upload-image")
+@login_required
+def admin_upload_image():
+    """上传图片"""
+    # 确保是管理员
+    if not current_user.is_admin:
+        return jsonify({'success': False, 'error': '无权限'}), 403
+    
+    # 创建上传目录
+    upload_dir = app.config['UPLOAD_FOLDER']
+    if not os.path.exists(upload_dir):
+        os.makedirs(upload_dir)
+    
+    if 'image' not in request.files:
+        return jsonify({'success': False, 'error': '没有图片文件'}), 400
+    
+    file = request.files['image']
+    
+    if file.filename == '':
+        return jsonify({'success': False, 'error': '未选择文件'}), 400
+    
+    if file and allowed_file(file.filename):
+        # 生成唯一文件名
+        original_filename = secure_filename(file.filename)
+        ext = original_filename.rsplit('.', 1)[1].lower() if '.' in original_filename else 'png'
+        unique_filename = f"{uuid.uuid4().hex}.{ext}"
+        
+        # 保存文件
+        filepath = os.path.join(upload_dir, unique_filename)
+        file.save(filepath)
+        
+        # 返回 URL
+        image_url = f"/static/exam_images/{unique_filename}"
+        
+        return jsonify({
+            'success': True,
+            'filename': unique_filename,
+            'url': image_url,
+            'original': original_filename
+        })
+    else:
+        return jsonify({'success': False, 'error': '不支持的图片格式，仅支持 PNG, JPG, JPEG, GIF, WebP'}), 400
 
 
 class User(UserMixin, db.Model):
@@ -181,6 +238,86 @@ class RandomPracticeQuestion(db.Model):
 @login_manager.user_loader
 def load_user(user_id):
     return db.session.get(User, int(user_id))
+
+
+
+@app.route("/admin/question/add", methods=["GET", "POST"])
+@login_required
+def admin_add_question():
+    """添加新题目"""
+    if not admin_required():
+        return redirect(url_for("index"))
+    
+    category_id = request.args.get("category_id", type=int)
+    
+    # 如果 GET 请求时没有 category_id，尝试从 referer 或其他地方获取
+    if request.method == "GET" and not category_id:
+        # 默认重定向到管理首页选择分类
+        return redirect(url_for("admin_home"))
+    
+    if request.method == "POST":
+        qtype = request.form.get("qtype")
+        stem = request.form.get("stem")
+        answer = request.form.get("answer")
+        explanation = request.form.get("explanation")
+        category_id = int(request.form.get("category_id"))
+        
+        # 验证必填字段
+        if qtype not in ("single", "multiple", "blank"):
+            flash("请选择正确的题型。", "error")
+            return redirect(url_for("admin_add_question", category_id=category_id))
+        
+        if not stem or not answer:
+            flash("题干和答案不能为空。", "error")
+            return redirect(url_for("admin_add_question", category_id=category_id))
+        
+        # 创建题目
+        question = Question(
+            stem=stem,
+            qtype=qtype,
+            correct_answer=answer,
+            explanation=explanation,
+            category_id=category_id
+        )
+        db.session.add(question)
+        db.session.flush()
+        
+        # 处理选项
+        option_keys = []
+        option_texts = []
+        
+        for key, value in request.form.items():
+            if key.startswith("option_key_"):
+                idx = key.split("_")[2]
+                option_keys.append((idx, value))
+            elif key.startswith("option_text_"):
+                idx = key.split("_")[2]
+                option_texts.append((idx, value))
+        
+        # 按索引排序并创建选项
+        option_keys.sort(key=lambda x: int(x[0]) if x[0].isdigit() else 0)
+        option_texts.sort(key=lambda x: int(x[0]) if x[0].isdigit() else 0)
+        
+        for (idx, opt_key), (_, opt_text) in zip(option_keys, option_texts):
+            if opt_key.strip() and opt_text.strip():  # 只创建有内容的选项
+                choice = Choice(
+                    question_id=question.id,
+                    option_key=opt_key.strip(),
+                    option_text=opt_text.strip()
+                )
+                db.session.add(choice)
+        
+        db.session.commit()
+        flash("题目添加成功！", "success")
+        return redirect(url_for("admin_questions", category_id=category_id))
+    
+    # GET: 显示添加页面
+    categories = Category.query.order_by(Category.name.asc()).all()
+    return render_template("admin_question_edit.html", 
+                         is_new=True, 
+                         question=None, 
+                         choices=[],
+                         category_id=category_id)
 
 
 @app.template_filter("render_stem")
@@ -1197,10 +1334,9 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
 
-
 def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: bool = False) -> list:
     """
-    智能抽取题目：优先未做过的，排除已答对的题目
+    智能抽取题目：优先未做过的，动态平衡各题库抽取次数
     
     Args:
         user_id: 用户 ID
@@ -1226,32 +1362,40 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
         s.question_id for s in UserQuestionStatus.query.filter_by(user_id=user_id, answered=True, is_correct=True).all()
     )
     
-    # 先构建分类数据
+    # 构建分类数据，并统计每个分类已被抽取的次数
     category_questions = {}
+    category_pick_count = {}  # 记录每个分类在本次抽取前已被抽过的次数
+    
     for cat in all_categories:
         all_qs = Question.query.filter_by(category_id=cat.id).all()
         
-        # 分类 1：未做过的题目（优先级最高）
+        # 分类 1：未做过的题目
         undone_qs = [q for q in all_qs if q.id not in done_question_ids]
         
-        # 分类 2：已做过但答错的题目（不是错题本的，优先级中等）
+        # 分类 2：已做过但答错的题目
         done_wrong_qs = [q for q in all_qs 
                         if q.id in done_question_ids and q.id not in correct_question_ids and q.id not in wrong_question_ids]
         
-        # 分类 3：错题（如果勾选包含，优先级最高）
+        # 分类 3：错题（如果勾选包含）
         wrong_qs = [q for q in all_qs if q.id in wrong_question_ids] if include_wrong else []
         
         # 已答对的题目（不加入候选池）
         correct_qs = [q for q in all_qs if q.id in correct_question_ids]
         
+        # 统计该分类在历史记录中已被抽过的次数（用于平衡）
+        # 这里简化处理：假设之前每次随机刷题都会均匀抽取，所以不特别统计历史
+        
         category_questions[cat.id] = {
             'category': cat,
             'all': all_qs,
             'undone': undone_qs,
-            'done_wrong': done_wrong_qs,  # 已做过但答错的
-            'wrong': wrong_qs,            # 错题本中的
-            'correct': correct_qs         # 已答对的（不抽取）
+            'done_wrong': done_wrong_qs,
+            'wrong': wrong_qs,
+            'correct': correct_qs,
+            'has_undone': len(undone_qs) > 0,
+            'pick_count': 0  # 本次抽取过程中，该分类被抽到的次数
         }
+        category_pick_count[cat.id] = 0
     
     # 计算错题数量
     total_wrong_needed = 0
@@ -1264,75 +1408,49 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
     selected_questions = []
     selected_ids = set()
     
-    # 策略 1：确保覆盖有未做题的分类（每个分类至少 1 道，如果题目够的话）
-    categories_with_undone = [cat_id for cat_id, data in category_questions.items() 
-                             if data['undone']]
-    
-    if categories_with_undone:
-        # 先从未做过的题目中，每个分类抽 1 道
-        for cat_id in categories_with_undone:
-            data = category_questions[cat_id]
-            if data['undone']:
-                selected = random.choice(data['undone'])
-                if selected.id not in selected_ids and len(selected_questions) < normal_count:
-                    selected_questions.append(selected)
-                    selected_ids.add(selected.id)
-    
-    # 策略 2：如果还没抽够，按分类平均分配继续抽
-    remaining = normal_count - len(selected_questions)
-    if remaining > 0:
-        total_categories = len(all_categories)
-        base_count = remaining // total_categories
-        extra_count = remaining % total_categories
+    # 策略 1：动态选择抽取次数最少的分类
+    for _ in range(normal_count):
+        # 找出所有还有题目的分类
+        available_categories = []
+        for cat_id, data in category_questions.items():
+            # 优先未做过的，其次答错的
+            available = [q for q in data['undone'] if q.id not in selected_ids]
+            if not available:
+                available = [q for q in data['done_wrong'] if q.id not in selected_ids]
+            
+            if available:
+                available_categories.append({
+                    'cat_id': cat_id,
+                    'data': data,
+                    'available': available,
+                    'pick_count': data['pick_count']
+                })
         
-        remaining_extra = extra_count
-        for idx, (cat_id, data) in enumerate(category_questions.items()):
-            cat_target = base_count + (1 if idx < remaining_extra else 0)
-            
-            if cat_target <= 0:
-                continue
-            
-            # 优先从未做过的抽取（排除已选的）
-            available_undone = [q for q in data['undone'] if q.id not in selected_ids]
-            undone_available = len(available_undone)
-            
-            if undone_available >= cat_target:
-                normal_selected = random.sample(available_undone, cat_target)
-                selected_questions.extend(normal_selected)
-                selected_ids.update(q.id for q in normal_selected)
-            elif undone_available > 0:
-                # 未做过的不够，全部选上
-                selected_questions.extend(available_undone)
-                selected_ids.update(q.id for q in available_undone)
-                still_needed = cat_target - undone_available
-                
-                # 用已做过但答错的补充（不抽取已答对的）
-                available_wrong = [q for q in data['done_wrong'] if q.id not in selected_ids]
-                if available_wrong and still_needed > 0:
-                    wrong_additional = random.sample(available_wrong, 
-                                                    min(still_needed, len(available_wrong)))
-                    selected_questions.extend(wrong_additional)
-                    selected_ids.update(q.id for q in wrong_additional)
-            else:
-                # 没有未做过的，直接用已做过但答错的补充
-                available_wrong = [q for q in data['done_wrong'] if q.id not in selected_ids]
-                if available_wrong:
-                    wrong_additional = random.sample(available_wrong, 
-                                                    min(cat_target, len(available_wrong)))
-                    selected_questions.extend(wrong_additional)
-                    selected_ids.update(q.id for q in wrong_additional)
+        if not available_categories:
+            break  # 没有可抽的了
+        
+        # 按抽取次数排序，优先选择抽取次数最少的
+        available_categories.sort(key=lambda x: (x['pick_count'], random.random()))
+        
+        # 从抽取次数最少的分类中选 1 道
+        best_cat = available_categories[0]
+        selected = random.choice(best_cat['available'])
+        
+        selected_questions.append(selected)
+        selected_ids.add(selected.id)
+        category_questions[best_cat['cat_id']]['pick_count'] += 1
     
-    # 策略 3：如果还没凑够，从所有未做过的题目中随机抽取
+    # 策略 2：如果还没抽够，从全局未做题中随机抽取
     if len(selected_questions) < normal_count:
         remaining = normal_count - len(selected_questions)
         all_undone_remaining = [q for cat_id, data in category_questions.items() 
                                for q in data['undone'] if q.id not in selected_ids]
+        
         if all_undone_remaining:
             additional = random.sample(all_undone_remaining, min(remaining, len(all_undone_remaining)))
             selected_questions.extend(additional)
-            selected_ids.update(q.id for q in additional)
     
-    # 策略 4：抽取错题（如果需要）
+    # 策略 3：抽取错题（如果需要）
     if total_wrong_needed > 0:
         all_wrongs = [q for cat_id, data in category_questions.items() 
                      for q in data['wrong'] if q.id not in selected_ids]
@@ -1345,6 +1463,7 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
     # 打乱顺序并限制数量
     random.shuffle(selected_questions)
     return selected_questions[:count]
+
 
 
 
@@ -1651,8 +1770,31 @@ def mark_mastered(question_id):
         db.session.commit()
         flash("已标记为已掌握", "success")
     
-    return redirect(request.referrer or url_for("practice_question", category_id=question.category_id))
-
+    # 如果是从随机刷题页面来的，需要同步更新 RandomPracticeQuestion 的状态
+    from flask import request
+    referrer = request.referrer or ""
+    
+    # 检查是否来自随机刷题页面
+    if "/random-practice/" in referrer:
+        # 提取 session_id 和 index
+        import re
+        match = re.search(r'/random-practice/(\d+)/(\d+)', referrer)
+        if match:
+            session_id = int(match.group(1))
+            index = int(match.group(2))
+            
+            # 找到对应的 RandomPracticeQuestion 记录
+            eq = RandomPracticeQuestion.query.filter_by(
+                session_id=session_id, 
+                order_index=index - 1
+            ).first()
+            
+            if eq and eq.question_id == question_id:
+                # 同步更新状态
+                eq.is_correct = True
+                db.session.commit()
+    
+    return redirect(referrer or url_for("practice_question", category_id=question.category_id))
 
 
 @app.post("/practice/mark-wrong/<int:question_id>")
@@ -1683,7 +1825,33 @@ def mark_wrong(question_id):
         db.session.commit()
         flash("已标记为错误并加入错题库", "info")
     
-    return redirect(request.referrer or url_for("practice_question", category_id=question.category_id))
+    # 如果是从随机刷题页面来的，需要同步更新 RandomPracticeQuestion 的状态
+    from flask import request
+    referrer = request.referrer or ""
+    
+    # 检查是否来自随机刷题页面
+    if "/random-practice/" in referrer:
+        # 提取 session_id 和 index
+        import re
+        match = re.search(r'/random-practice/(\d+)/(\d+)', referrer)
+        if match:
+            session_id = int(match.group(1))
+            index = int(match.group(2))
+            
+            # 找到对应的 RandomPracticeQuestion 记录
+            eq = RandomPracticeQuestion.query.filter_by(
+                session_id=session_id, 
+                order_index=index - 1
+            ).first()
+            
+            if eq and eq.question_id == question_id:
+                # 同步更新状态
+                eq.is_correct = False
+                db.session.commit()
+    
+    return redirect(referrer or url_for("practice_question", category_id=question.category_id))
+
+
 
 @app.template_filter("render_markdown")
 def render_markdown(text: str) -> Markup:

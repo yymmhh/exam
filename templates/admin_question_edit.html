@@ -1,37 +1,365 @@
 {% extends "base.html" %}
-{% block title %}编辑题目{% endblock %}
+{% block title %}{% if is_new %}添加题目{% else %}编辑题目{% endif %}{% endblock %}
 {% block content %}
-<h2>编辑题目 #{{ question.id }}</h2>
-<p><a href="{{ url_for('admin_questions', category_id=question.category_id) }}">返回题目列表</a></p>
+<h2>{% if is_new %}添加题目{% else %}编辑题目 #{{ question.id }}{% endif %}</h2>
+<p><a href="{{ url_for('admin_questions', category_id=category_id if is_new else question.category_id) }}">返回题目列表</a></p>
+
+<style>
+/* 图片上传区域样式 */
+.image-upload-container {
+  position: relative;
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 8px;
+  transition: all 0.3s;
+  background: #f9fafb;
+}
+
+.image-upload-container:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.image-upload-container.dragover {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+.image-upload-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.image-upload-btn:hover {
+  background: #1e4fcc;
+}
+
+.uploaded-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.uploaded-image-item {
+  position: relative;
+  border: 1px solid #e5e7eb;
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 200px;
+}
+
+.uploaded-image-item img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.uploaded-image-item .remove-img {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(220, 38, 38, 0.9);
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.uploaded-image-item .remove-img:hover {
+  background: #dc2626;
+}
+
+.image-tag {
+  display: inline-block;
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  margin-left: 8px;
+  cursor: pointer;
+}
+
+.image-tag:hover {
+  background: #c7d2fe;
+}
+
+.rich-editor {
+  width: 100%;
+  min-height: 120px;
+  padding: 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-family: inherit;
+  resize: vertical;
+}
+</style>
 
 <form method="post" class="card">
   <p>
     题型：
-    <select name="qtype" required>
-      <option value="single" {% if question.qtype == 'single' %}selected{% endif %}>single</option>
-      <option value="multiple" {% if question.qtype == 'multiple' %}selected{% endif %}>multiple</option>
-      <option value="blank" {% if question.qtype == 'blank' %}selected{% endif %}>blank</option>
+    <select name="qtype" required onchange="toggleOptions()">
+      <option value="single" {% if question.qtype == 'single' %}selected{% endif %}>单选题</option>
+      <option value="multiple" {% if question.qtype == 'multiple' %}selected{% endif %}>多选题</option>
+      <option value="blank" {% if question.qtype == 'blank' %}selected{% endif %}>填空题</option>
     </select>
   </p>
-  <p>题干：<textarea name="stem" required>{{ question.stem }}</textarea></p>
-  <p>答案：<input name="answer" value="{{ question.correct_answer }}" style="width:100%;" required></p>
-  <p>解析：<textarea name="explanation">{{ question.explanation or '' }}</textarea></p>
+  
+  <p>
+    <label style="display:block; margin-bottom:6px;"><strong>题干：</strong></label>
+    <textarea id="stem" name="stem" class="rich-editor" required>{{ question.stem }}</textarea>
+    
+    <!-- 题干图片上传 -->
+    <div class="image-upload-container" id="stem-upload" 
+         ondragover="handleDragOver(event)" 
+         ondragleave="handleDragLeave(event)" 
+         ondrop="handleDrop(event, 'stem')"
+         onpaste="handlePaste(event, 'stem')">
+      <button type="button" class="image-upload-btn" onclick="document.getElementById('stem-file').click()">📷 粘贴或拖拽上传图片</button>
+      <input type="file" id="stem-file" accept="image/*" style="display:none;" onchange="handleFileSelect(event, 'stem')">
+      <span style="margin-left:10px; font-size:13px; color:#6b7280;">支持 Ctrl+V 粘贴、拖拽或点击选择</span>
+      
+      <div class="uploaded-images" id="stem-images"></div>
+    </div>
+  </p>
+  
+  <p>
+    <label style="display:block; margin-bottom:6px;"><strong>答案：</strong></label>
+    <input name="answer" value="{{ question.correct_answer }}" style="width:100%;" required>
+  </p>
+  
+  <p>
+    <label style="display:block; margin-bottom:6px;"><strong>解析：</strong></label>
+    <textarea id="explanation" name="explanation" class="rich-editor">{{ question.explanation or '' }}</textarea>
+    
+    <!-- 解析图片上传 -->
+    <div class="image-upload-container" id="explanation-upload" 
+         ondragover="handleDragOver(event)" 
+         ondragleave="handleDragLeave(event)" 
+         ondrop="handleDrop(event, 'explanation')"
+         onpaste="handlePaste(event, 'explanation')">
+      <button type="button" class="image-upload-btn" onclick="document.getElementById('explanation-file').click()">📷 粘贴或拖拽上传图片</button>
+      <input type="file" id="explanation-file" accept="image/*" style="display:none;" onchange="handleFileSelect(event, 'explanation')">
+      <span style="margin-left:10px; font-size:13px; color:#6b7280;">支持 Ctrl+V 粘贴、拖拽或点击选择</span>
+      
+      <div class="uploaded-images" id="explanation-images"></div>
+    </div>
+  </p>
 
-  <h3>选项（single/multiple 时填写）</h3>
-  {% set existing = choices if choices else [] %}
-  {% for c in existing %}
-    <p>
-      <input name="option_key" value="{{ c.option_key }}" style="width:60px;" placeholder="A">
-      <input name="option_text" value="{{ c.option_text }}" style="width:70%;" placeholder="选项内容">
-    </p>
-  {% endfor %}
-  {% for i in range(6 - existing|length) %}
-    <p>
-      <input name="option_key" style="width:60px;" placeholder="A">
-      <input name="option_text" style="width:70%;" placeholder="选项内容">
-    </p>
-  {% endfor %}
+  <div id="options-section">
+    <h3>选项（单选题/多选题时填写）</h3>
+    {% set existing = choices if choices else [] %}
+    {% for c in existing %}
+      <p>
+        <input name="option_key_{{loop.index0}}" value="{{ c.option_key }}" style="width:60px;" placeholder="A">
+        <input name="option_text_{{loop.index0}}" value="{{ c.option_text }}" style="width:70%;" placeholder="选项内容">
+        
+        <!-- 选项图片上传 -->
+        <div class="image-upload-container" id="option-{{loop.index0}}-upload" 
+             ondragover="handleDragOver(event)" 
+             ondragleave="handleDragLeave(event)" 
+             ondrop="handleDrop(event, 'option-{{loop.index0}}')"
+             onpaste="handlePaste(event, 'option-{{loop.index0}}')">
+          <button type="button" class="image-upload-btn" onclick="document.getElementById('option-{{loop.index0}}-file').click()">📷 上传图片</button>
+          <input type="file" id="option-{{loop.index0}}-file" accept="image/*" style="display:none;" onchange="handleFileSelect(event, 'option-{{loop.index0}}')">
+          
+          <div class="uploaded-images" id="option-{{loop.index0}}-images"></div>
+        </div>
+      </p>
+    {% endfor %}
+    {% for i in range(6 - existing|length) %}
+      <p>
+        <input name="option_key_{{existing|length + i}}" style="width:60px;" placeholder="A">
+        <input name="option_text_{{existing|length + i}}" style="width:70%;" placeholder="选项内容">
+        
+        <!-- 选项图片上传 -->
+        <div class="image-upload-container" id="option-{{existing|length + i}}-upload">
+          <button type="button" class="image-upload-btn" onclick="document.getElementById('option-{{existing|length + i}}-file').click()">📷 上传图片</button>
+          <input type="file" id="option-{{existing|length + i}}-file" accept="image/*" style="display:none;" onchange="handleFileSelect(event, 'option-{{existing|length + i}}')">
+          
+          <div class="uploaded-images" id="option-{{existing|length + i}}-images"></div>
+        </div>
+      </p>
+    {% endfor %}
+  </div>
 
   <p><button type="submit">保存题目</button></p>
 </form>
+
+<script>
+// 存储已上传的图片信息
+const uploadedImages = {};
+
+function toggleOptions() {
+  const qtype = document.querySelector('[name="qtype"]').value;
+  const optionsSection = document.getElementById('options-section');
+  optionsSection.style.display = (qtype === 'single' || qtype === 'multiple') ? 'block' : 'none';
+}
+
+// 初始化
+toggleOptions();
+
+// 拖拽悬停
+function handleDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('dragover');
+}
+
+// 拖拽离开
+function handleDragLeave(e) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('dragover');
+}
+
+// 拖拽放下
+function handleDrop(e, fieldId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('dragover');
+  
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    uploadImage(files[0], fieldId);
+  }
+}
+
+// 粘贴处理
+function handlePaste(e, fieldId) {
+  const items = e.clipboardData.items;
+  
+  for (let i = 0; i < items.length; i++) {
+    if (items[i].type.indexOf('image') !== -1) {
+      const file = items[i].getAsFile();
+      uploadImage(file, fieldId);
+      e.preventDefault();
+      break;
+    }
+  }
+}
+
+// 文件选择
+function handleFileSelect(e, fieldId) {
+  const files = e.target.files;
+  if (files.length > 0) {
+    uploadImage(files[0], fieldId);
+  }
+}
+
+// 上传图片
+async function uploadImage(file, fieldId) {
+  const formData = new FormData();
+  formData.append('image', file);
+  
+  try {
+    const response = await fetch('/admin/upload-image', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+      // 保存图片信息
+      if (!uploadedImages[fieldId]) {
+        uploadedImages[fieldId] = [];
+      }
+      uploadedImages[fieldId].push(result.filename);
+      
+      // 显示预览
+      displayImagePreview(fieldId, result.filename, result.url);
+      
+      // 插入图片标签到文本框
+      insertImageTag(fieldId, result.filename);
+      
+      alert('图片上传成功！');
+    } else {
+      alert('上传失败：' + result.error);
+    }
+  } catch (error) {
+    console.error('上传失败:', error);
+    alert('上传失败：' + error.message);
+  }
+}
+
+// 显示图片预览
+function displayImagePreview(fieldId, filename, url) {
+  const container = document.getElementById(fieldId + '-images');
+  
+  const div = document.createElement('div');
+  div.className = 'uploaded-image-item';
+  div.dataset.filename = filename;
+  
+  div.innerHTML = `
+    <img src="${url}" alt="${filename}">
+    <button type="button" class="remove-img" onclick="removeImage('${fieldId}', '${filename}')">&times;</button>
+  `;
+  
+  container.appendChild(div);
+}
+
+// 移除图片
+function removeImage(fieldId, filename) {
+  const container = document.getElementById(fieldId + '-images');
+  const items = container.querySelectorAll('.uploaded-image-item');
+  
+  items.forEach(item => {
+    if (item.dataset.filename === filename) {
+      item.remove();
+    }
+  });
+  
+  // 从数组中移除
+  if (uploadedImages[fieldId]) {
+    uploadedImages[fieldId] = uploadedImages[fieldId].filter(f => f !== filename);
+  }
+}
+
+// 插入图片标签到文本框
+function insertImageTag(fieldId, filename) {
+  let textarea;
+  if (fieldId.startsWith('option-')) {
+    // 选项的文本框
+    const optionIndex = fieldId.split('-')[1];
+    textarea = document.querySelector(`[name="option_text_${optionIndex}"]`);
+  } else {
+    // 题干或解析
+    textarea = document.getElementById(fieldId);
+  }
+  
+  if (textarea) {
+    const imgTag = `<img src="/static/exam_images/${filename}" alt="${filename}">`;
+    const startPos = textarea.selectionStart;
+    const endPos = textarea.selectionEnd;
+    
+    textarea.value = textarea.value.substring(0, startPos) + 
+                    imgTag + 
+                    textarea.value.substring(endPos);
+    
+    textarea.focus();
+    textarea.selectionStart = textarea.selectionEnd = startPos + imgTag.length;
+  }
+}
+
+// 提交前准备
+document.querySelector('form').addEventListener('submit', function(e) {
+  // 将所有上传的图片信息添加到表单
+  for (const [fieldId, filenames] of Object.entries(uploadedImages)) {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = fieldId + '_images';
+    input.value = filenames.join(',');
+    this.appendChild(input);
+  }
+});
+</script>
 {% endblock %}

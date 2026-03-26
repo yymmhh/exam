@@ -32,28 +32,22 @@
   </div>
 </div>
 
-<h3>题库列表</h3>
-{% for c in categories %}
-  <div class="card">
-    <p><strong>{{ c.name }}</strong></p>
-    <p class="muted">{{ c.description or '暂无描述' }}</p>
-    <form method="post" action="{{ url_for('admin_category_edit', category_id=c.id) }}" class="row" style="margin-top:8px;">
-      <input name="name" value="{{ c.name }}" required style="max-width:220px;">
-      <input name="description" value="{{ c.description or '' }}" placeholder="分类描述" style="max-width:320px;">
-      <input type="number" name="sort_order" value="{{ c.sort_order or 0 }}" style="max-width:150px;" placeholder="排序">
-      <button type="submit">保存分类</button>
-    </form>
-    <div class="row" style="margin-top:8px;">
-      <a href="{{ url_for('admin_import_questions', category_id=c.id) }}">导入题目</a>
-      <a href="{{ url_for('admin_questions', category_id=c.id) }}">编辑题目</a>
-      <form method="post" action="{{ url_for('admin_category_delete', category_id=c.id) }}">
-        <button type="submit" class="btn-light">删除分类</button>
-      </form>
-    </div>
-  </div>
-{% else %}
-  <p>暂无分类。</p>
-{% endfor %}
+<div class="card">
+  <h3>题库管理</h3>
+  <ul>
+    {% for c in categories %}
+    <li>
+      <a href="{{ url_for('admin_questions', category_id=c.id) }}">{{ c.name }}</a>
+      (<a href="{{ url_for('admin_category_edit', category_id=c.id) }}">编辑</a>)
+      (<a href="{{ url_for('admin_add_question', category_id=c.id) }}">➕ 添加题目</a>)
+    </li>
+    {% endfor %}
+  </ul>
+  <form method="post" action="{{ url_for('admin_category_add') }}">
+    <input name="name" placeholder="新题库名称" required>
+    <button type="submit">添加题库</button>
+  </form>
+</div>
 
 <h3>用户管理</h3>
 {% for u in users %}

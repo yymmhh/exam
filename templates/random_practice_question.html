@@ -5,12 +5,12 @@
 <p>第 {{ current_index }} / {{ total }} 题</p>
 
 <!-- 答题卡按钮 -->
-<button type="button" onclick="toggleAnswerSheet()" class="answer-sheet-btn">
+<button type="button" onclick="toggleAnswerSheet(event)" class="answer-sheet-btn">
   📋 答题卡
 </button>
 
 <!-- 答题卡弹窗 -->
-<div id="answerSheetModal" class="answer-sheet-modal" onclick="if(event.target===this) toggleAnswerSheet()">
+<div id="answerSheetModal" class="answer-sheet-modal" onclick="if(event.target===this) toggleAnswerSheet(event)">
   <div class="answer-sheet-content">
     <div class="question-info-bar">
       <h3 style="margin:0;">📋 答题卡</h3>
@@ -141,24 +141,99 @@
 </div>
 
 <script>
-function toggleAnswerSheet() {
+// 计算滚动条宽度
+function getScrollbarWidth() {
+  const outer = document.createElement('div');
+  outer.style.visibility = 'hidden';
+  outer.style.width = '100px';
+  outer.style.msOverflowStyle = 'scrollbar';
+  document.body.appendChild(outer);
+
+  const noScroll = outer.offsetWidth;
+  outer.style.overflow = 'scroll';
+
+  const inner = document.createElement('div');
+  inner.style.width = '100%';
+  outer.appendChild(inner);
+
+  const withScroll = inner.offsetWidth;
+  outer.parentNode.removeChild(outer);
+
+  return noScroll - withScroll;
+}
+
+// 使用 data-attribute 来跟踪状态，避免依赖 style.display
+function toggleAnswerSheet(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  
   var modal = document.getElementById('answerSheetModal');
-  if (modal.style.display === 'none') {
+  var isVisible = modal.classList.contains('show');
+  
+  if (!isVisible) {
+    // 显示弹窗
     modal.style.display = 'block';
-    document.body.style.overflow = 'hidden';
+    modal.classList.add('show');
+    
+    // 补偿滚动条宽度，防止页面偏移
+    const scrollbarWidth = getScrollbarWidth();
+    
+    // 给 body 添加 class，统一处理
+    document.body.classList.add('modal-open');
+    document.body.style.setProperty('--scrollbar-width', scrollbarWidth + 'px');
   } else {
+    // 隐藏弹窗
     modal.style.display = 'none';
-    document.body.style.overflow = '';
+    modal.classList.remove('show');
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('--scrollbar-width');
   }
 }
 
+// ESC 键关闭弹窗
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     var modal = document.getElementById('answerSheetModal');
-    if (modal.style.display === 'block') {
+    if (modal.classList.contains('show')) {
       toggleAnswerSheet();
     }
   }
 });
+
+// 页面加载完成后初始化
+document.addEventListener('DOMContentLoaded', function() {
+  // 确保初始状态是隐藏的
+  var modal = document.getElementById('answerSheetModal');
+  if (modal) {
+    modal.style.display = 'none';
+    modal.classList.remove('show');
+  }
+});
 </script>
+
+<style>
+/* 弹窗打开时的样式 */
+body.modal-open {
+  overflow: hidden;
+  padding-right: var(--scrollbar-width, 17px);
+}
+
+
+
+/* 调整顶部导航栏 */
+body.modal-open .topbar {
+  padding-right: calc(-20px + var(--scrollbar-width, 17px)) !important;
+}
+
+/* 如果有其他固定元素也需要调整 */
+body.modal-open header,
+body.modal-open nav,
+body.modal-open .fixed-top,
+body.modal-open .sticky-top {
+  padding-right: calc(var(--padding-right, 0px) + var(--scrollbar-width, 17px)) !important;
+}
+</style>
+
 {% endblock %}
