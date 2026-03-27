@@ -50,7 +50,7 @@ def generate_ai_explanation(question: Question, api_key: str) -> tuple:
         
         print(f"  正在调用千问 API...")
         response = Generation.call(
-            model="qwen-turbo",
+            model="qwen-turbo-2025-02-11",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             max_tokens=2000

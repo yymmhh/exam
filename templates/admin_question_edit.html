@@ -107,12 +107,15 @@
 </style>
 
 <form method="post" class="card">
+  <!-- 隐藏字段：分类 ID -->
+  <input type="hidden" name="category_id" value="{{ category_id }}">
+  
   <p>
     题型：
     <select name="qtype" required onchange="toggleOptions()">
-      <option value="single" {% if question.qtype == 'single' %}selected{% endif %}>单选题</option>
-      <option value="multiple" {% if question.qtype == 'multiple' %}selected{% endif %}>多选题</option>
-      <option value="blank" {% if question.qtype == 'blank' %}selected{% endif %}>填空题</option>
+      <option value="single" {% if question and question.qtype == 'single' %}selected{% endif %}>单选题</option>
+      <option value="multiple" {% if question and question.qtype == 'multiple' %}selected{% endif %}>多选题</option>
+      <option value="blank" {% if question and question.qtype == 'blank' %}selected{% endif %}>填空题</option>
     </select>
   </p>
   
@@ -160,6 +163,9 @@
   <div id="options-section">
     <h3>选项（单选题/多选题时填写）</h3>
     {% set existing = choices if choices else [] %}
+    {% set option_letters = ['A', 'B', 'C', 'D', 'E', 'F'] %}
+    
+    {# 已有的选项 #}
     {% for c in existing %}
       <p>
         <input name="option_key_{{loop.index0}}" value="{{ c.option_key }}" style="width:60px;" placeholder="A">
@@ -178,17 +184,21 @@
         </div>
       </p>
     {% endfor %}
+    
+    {# 补充空白的选项，自动填充 A/B/C/D/E/F #}
     {% for i in range(6 - existing|length) %}
+      {% set current_index = existing|length + i %}
+      {% set default_letter = option_letters[current_index] if current_index < option_letters|length else '' %}
       <p>
-        <input name="option_key_{{existing|length + i}}" style="width:60px;" placeholder="A">
-        <input name="option_text_{{existing|length + i}}" style="width:70%;" placeholder="选项内容">
+        <input name="option_key_{{current_index}}" value="{{ default_letter }}" style="width:60px;" placeholder="A">
+        <input name="option_text_{{current_index}}" style="width:70%;" placeholder="选项内容">
         
         <!-- 选项图片上传 -->
-        <div class="image-upload-container" id="option-{{existing|length + i}}-upload">
-          <button type="button" class="image-upload-btn" onclick="document.getElementById('option-{{existing|length + i}}-file').click()">📷 上传图片</button>
-          <input type="file" id="option-{{existing|length + i}}-file" accept="image/*" style="display:none;" onchange="handleFileSelect(event, 'option-{{existing|length + i}}')">
+        <div class="image-upload-container" id="option-{{current_index}}-upload">
+          <button type="button" class="image-upload-btn" onclick="document.getElementById('option-{{current_index}}-file').click()">📷 上传图片</button>
+          <input type="file" id="option-{{current_index}}-file" accept="image/*" style="display:none;" onchange="handleFileSelect(event, 'option-{{current_index}}')">
           
-          <div class="uploaded-images" id="option-{{existing|length + i}}-images"></div>
+          <div class="uploaded-images" id="option-{{current_index}}-images"></div>
         </div>
       </p>
     {% endfor %}
@@ -198,6 +208,9 @@
 </form>
 
 <script>
+// 获取当前页面的基础 URL
+const baseUrl = window.location.protocol + '//' + window.location.host;
+
 // 存储已上传的图片信息
 const uploadedImages = {};
 
@@ -299,8 +312,11 @@ function displayImagePreview(fieldId, filename, url) {
   div.className = 'uploaded-image-item';
   div.dataset.filename = filename;
   
+  // 使用完整 URL
+  const fullUrl = `${baseUrl}/static/exam_images/${filename}`;
+  
   div.innerHTML = `
-    <img src="${url}" alt="${filename}">
+    <img src="${fullUrl}" alt="${filename}">
     <button type="button" class="remove-img" onclick="removeImage('${fieldId}', '${filename}')">&times;</button>
   `;
   
@@ -337,7 +353,9 @@ function insertImageTag(fieldId, filename) {
   }
   
   if (textarea) {
-    const imgTag = `<img src="/static/exam_images/${filename}" alt="${filename}">`;
+    // 使用完整 URL（基于当前页面域名）
+    const fullUrl = `${baseUrl}/static/exam_images/${filename}`;
+    const imgTag = `<img src="${fullUrl}" alt="${filename}">`;
     const startPos = textarea.selectionStart;
     const endPos = textarea.selectionEnd;
     

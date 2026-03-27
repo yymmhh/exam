@@ -44,6 +44,7 @@ def allowed_file(filename):
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+
 @app.post("/admin/upload-image")
 @login_required
 def admin_upload_image():
@@ -75,19 +76,17 @@ def admin_upload_image():
         filepath = os.path.join(upload_dir, unique_filename)
         file.save(filepath)
         
-        # 返回 URL
-        image_url = f"/static/exam_images/{unique_filename}"
+        # 返回相对路径（让前端 JS 自己拼接完整 URL）
+        image_path = f"/static/exam_images/{unique_filename}"
         
         return jsonify({
             'success': True,
             'filename': unique_filename,
-            'url': image_url,
+            'path': image_path,  # 相对路径
             'original': original_filename
         })
     else:
         return jsonify({'success': False, 'error': '不支持的图片格式，仅支持 PNG, JPG, JPEG, GIF, WebP'}), 400
-
-
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
@@ -239,7 +238,7 @@ class RandomPracticeQuestion(db.Model):
 def load_user(user_id):
     return db.session.get(User, int(user_id))
 
-
+# ... existing code ...
 
 @app.route("/admin/question/add", methods=["GET", "POST"])
 @login_required
@@ -248,77 +247,105 @@ def admin_add_question():
     if not admin_required():
         return redirect(url_for("index"))
     
-    category_id = request.args.get("category_id", type=int)
+    # GET: 从 URL 参数获取 category_id
+    if request.method == "GET":
+        category_id = request.args.get("category_id", type=int)
+        
+        # 如果没有 category_id，重定向到管理首页
+        if not category_id:
+            flash("请先选择一个题库。", "info")
+            return redirect(url_for("admin_home"))
+        
+        categories = Category.query.order_by(Category.name.asc()).all()
+        return render_template("admin_question_edit.html", 
+                             is_new=True, 
+                             question=None, 
+                             choices=[],
+                             category_id=category_id)
     
-    # 如果 GET 请求时没有 category_id，尝试从 referer 或其他地方获取
-    if request.method == "GET" and not category_id:
-        # 默认重定向到管理首页选择分类
+    # POST: 处理表单提交
+    category_id_post = request.form.get("category_id")
+    
+    # 确保 category_id 存在
+    if not category_id_post:
+        flash("缺少分类 ID，请返回重新选择。", "error")
         return redirect(url_for("admin_home"))
     
-    if request.method == "POST":
-        qtype = request.form.get("qtype")
-        stem = request.form.get("stem")
-        answer = request.form.get("answer")
-        explanation = request.form.get("explanation")
-        category_id = int(request.form.get("category_id"))
-        
-        # 验证必填字段
-        if qtype not in ("single", "multiple", "blank"):
-            flash("请选择正确的题型。", "error")
-            return redirect(url_for("admin_add_question", category_id=category_id))
-        
-        if not stem or not answer:
-            flash("题干和答案不能为空。", "error")
-            return redirect(url_for("admin_add_question", category_id=category_id))
-        
-        # 创建题目
-        question = Question(
-            stem=stem,
-            qtype=qtype,
-            correct_answer=answer,
-            explanation=explanation,
-            category_id=category_id
-        )
-        db.session.add(question)
-        db.session.flush()
-        
-        # 处理选项
-        option_keys = []
-        option_texts = []
-        
-        for key, value in request.form.items():
-            if key.startswith("option_key_"):
-                idx = key.split("_")[2]
-                option_keys.append((idx, value))
-            elif key.startswith("option_text_"):
-                idx = key.split("_")[2]
-                option_texts.append((idx, value))
-        
-        # 按索引排序并创建选项
-        option_keys.sort(key=lambda x: int(x[0]) if x[0].isdigit() else 0)
-        option_texts.sort(key=lambda x: int(x[0]) if x[0].isdigit() else 0)
-        
-        for (idx, opt_key), (_, opt_text) in zip(option_keys, option_texts):
-            if opt_key.strip() and opt_text.strip():  # 只创建有内容的选项
-                choice = Choice(
-                    question_id=question.id,
-                    option_key=opt_key.strip(),
-                    option_text=opt_text.strip()
-                )
-                db.session.add(choice)
-        
-        db.session.commit()
-        flash("题目添加成功！", "success")
-        return redirect(url_for("admin_questions", category_id=category_id))
+    try:
+        category_id = int(category_id_post)
+    except (ValueError, TypeError):
+        flash("分类 ID 格式错误。", "error")
+        return redirect(url_for("admin_home"))
     
-    # GET: 显示添加页面
-    categories = Category.query.order_by(Category.name.asc()).all()
-    return render_template("admin_question_edit.html", 
-                         is_new=True, 
-                         question=None, 
-                         choices=[],
-                         category_id=category_id)
+    qtype = request.form.get("qtype")
+    stem = request.form.get("stem")
+    answer = request.form.get("answer")
+    explanation = request.form.get("explanation")
+    
+    # 验证必填字段
+    if qtype not in ("single", "multiple", "blank"):
+        flash("请选择正确的题型。", "error")
+        return redirect(url_for("admin_add_question", category_id=category_id))
+    
+    if not stem or not answer:
+        flash("题干和答案不能为空。", "error")
+        return redirect(url_for("admin_add_question", category_id=category_id))
+    
+    # 创建题目
+    question = Question(
+        stem=stem,
+        qtype=qtype,
+        correct_answer=answer,
+        explanation=explanation,
+        category_id=category_id
+    )
+    db.session.add(question)
+    db.session.flush()
+    
+    # 处理选项 - 改进的提取逻辑
+    options_data = {}  # 使用字典存储，key 为索引
+    
+    for key, value in request.form.items():
+        # 匹配 option_key_0, option_key_1 等
+        if key.startswith("option_key_"):
+            parts = key.split("_")
+            if len(parts) >= 3:
+                idx = parts[2]
+                if idx not in options_data:
+                    options_data[idx] = {'key': None, 'text': None}
+                options_data[idx]['key'] = value
+        
+        # 匹配 option_text_0, option_text_1 等
+        elif key.startswith("option_text_"):
+            parts = key.split("_")
+            if len(parts) >= 3:
+                idx = parts[2]
+                if idx not in options_data:
+                    options_data[idx] = {'key': None, 'text': None}
+                options_data[idx]['text'] = value
+    
+    # 按索引排序并创建选项
+    sorted_indices = sorted(options_data.keys(), 
+                           key=lambda x: int(x) if x and x.isdigit() else 999)
+    
+    for idx in sorted_indices:
+        opt_key = options_data[idx]['key']
+        opt_text = options_data[idx]['text']
+        
+        # 只创建有内容的选项
+        if opt_key and opt_key.strip() and opt_text and opt_text.strip():
+            choice = Choice(
+                question_id=question.id,
+                option_key=opt_key.strip(),
+                option_text=opt_text.strip()
+            )
+            db.session.add(choice)
+    
+    db.session.commit()
+    flash("题目添加成功！", "success")
+    return redirect(url_for("admin_questions", category_id=category_id))
 
+# ... existing code ...
 
 @app.template_filter("render_stem")
 def render_stem(stem: str) -> str:
@@ -1111,17 +1138,20 @@ def admin_questions(category_id):
 @app.route("/admin/question/edit/<int:question_id>", methods=["GET", "POST"])
 @login_required
 def admin_question_edit(question_id):
+    """编辑题目"""
     if not admin_required():
         return redirect(url_for("index"))
     question = db.session.get(Question, question_id)
     if not question:
         flash("题目不存在。", "error")
         return redirect(url_for("admin_home"))
+    
     if request.method == "POST":
         qtype = request.form.get("qtype", "").strip()
         stem = request.form.get("stem", "").strip()
         answer = request.form.get("answer", "").strip()
         explanation = request.form.get("explanation", "").strip()
+        
         if qtype not in ("single", "multiple", "blank") or not stem or not answer:
             flash("请完整填写题型、题干、答案。", "error")
             return redirect(url_for("admin_question_edit", question_id=question_id))
@@ -1131,25 +1161,69 @@ def admin_question_edit(question_id):
         question.correct_answer = answer
         question.explanation = explanation
 
+        # 处理选项 - 支持带索引和不带索引两种格式
         if qtype in ("single", "multiple"):
-            option_keys = request.form.getlist("option_key")
-            option_values = request.form.getlist("option_text")
+            # 先删除旧选项
             Choice.query.filter_by(question_id=question.id).delete()
-            for key, value in zip(option_keys, option_values):
-                k = key.strip().upper()
-                v = value.strip()
-                if k and v:
-                    db.session.add(Choice(question_id=question.id, option_key=k, option_text=v))
+            
+            # 尝试获取带索引的选项（新格式）
+            options_data = {}
+            has_indexed = False
+            
+            for key, value in request.form.items():
+                if key.startswith("option_key_"):
+                    parts = key.split("_")
+                    if len(parts) >= 3:
+                        idx = parts[2]
+                        if idx not in options_data:
+                            options_data[idx] = {'key': None, 'text': None}
+                        options_data[idx]['key'] = value
+                        has_indexed = True
+                
+                elif key.startswith("option_text_"):
+                    parts = key.split("_")
+                    if len(parts) >= 3:
+                        idx = parts[2]
+                        if idx not in options_data:
+                            options_data[idx] = {'key': None, 'text': None}
+                        options_data[idx]['text'] = value
+                        has_indexed = True
+            
+            # 如果使用了带索引的格式
+            if has_indexed:
+                sorted_indices = sorted(options_data.keys(), 
+                                       key=lambda x: int(x) if x and x.isdigit() else 999)
+                
+                for idx in sorted_indices:
+                    opt_key = options_data[idx]['key']
+                    opt_text = options_data[idx]['text']
+                    
+                    if opt_key and opt_key.strip() and opt_text and opt_text.strip():
+                        db.session.add(Choice(
+                            question_id=question.id,
+                            option_key=opt_key.strip().upper(),
+                            option_text=opt_text.strip()
+                        ))
+            else:
+                # 使用旧格式（不带索引）
+                option_keys = request.form.getlist("option_key")
+                option_values = request.form.getlist("option_text")
+                for key, value in zip(option_keys, option_values):
+                    k = key.strip().upper()
+                    v = value.strip()
+                    if k and v:
+                        db.session.add(Choice(question_id=question.id, option_key=k, option_text=v))
         else:
+            # 填空题不需要选项
             Choice.query.filter_by(question_id=question.id).delete()
 
         db.session.commit()
         flash("题目已更新。", "success")
         return redirect(url_for("admin_questions", category_id=question.category_id))
 
+    # GET: 显示编辑页面
     choices = Choice.query.filter_by(question_id=question.id).order_by(Choice.option_key.asc()).all()
     return render_template("admin_question_edit.html", question=question, choices=choices)
-
 
 @app.post("/admin/question/delete/<int:question_id>")
 @login_required
