@@ -1,6 +1,164 @@
 {% extends "base.html" %}
 {% block title %}随机练习 - 第{{ index }}题{% endblock %}
 {% block content %}
+<style>
+/* 题目题干样式 */
+.question-stem {
+  margin-bottom: 20px;
+  line-height: 1.8;
+}
+
+/* 选项样式 */
+.question-option {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: #f9fafb;
+  transition: all 0.2s;
+}
+
+.question-option:hover {
+  background: #f3f4f6;
+}
+
+.question-option label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  margin: 0;
+}
+
+.question-option input[type="radio"],
+.question-option input[type="checkbox"] {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.option-text {
+  flex: 1;
+  line-height: 1.7;
+}
+
+/* 填空题输入框样式 */
+.question-blank input {
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+
+/* Markdown 内容中的段落 */
+.question-stem .markdown-body p,
+.question-option .markdown-body p {
+  margin: 8px 0;
+}
+
+/* Markdown 内容中的列表 */
+.question-stem .markdown-body ul,
+.question-stem .markdown-body ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.question-stem .markdown-body li {
+  margin: 4px 0;
+}
+
+/* Markdown 内容中的代码块 */
+.question-stem .markdown-body pre,
+.question-option .markdown-body pre {
+  margin: 12px 0;
+  padding: 12px;
+  background: #f6f8fa;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
+.question-stem .markdown-body code,
+.question-option .markdown-body code {
+  background: rgba(27, 31, 35, 0.05);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 0.9em;
+}
+
+/* Markdown 内容中的表格 */
+.question-stem .markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.question-stem .markdown-body th,
+.question-stem .markdown-body td {
+  border: 1px solid #e5e7eb;
+  padding: 8px 12px;
+  text-align: left;
+}
+
+.question-stem .markdown-body th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+
+/* Markdown 内容中的引用 */
+.question-stem .markdown-body blockquote,
+.question-option .markdown-body blockquote {
+  border-left: 4px solid #007bff;
+  padding: 8px 16px;
+  margin: 12px 0;
+  background: rgba(0, 123, 255, 0.05);
+  color: #495057;
+}
+
+/* Markdown 内容中的图片 */
+.question-stem .markdown-body img,
+.question-option .markdown-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  margin: 10px 0;
+  display: block;
+}
+
+/* Markdown 内容中的标题 */
+.question-stem .markdown-body h1,
+.question-stem .markdown-body h2,
+.question-stem .markdown-body h3,
+.question-stem .markdown-body h4,
+.question-stem .markdown-body h5,
+.question-stem .markdown-body h6 {
+  margin: 16px 0 10px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.question-stem .markdown-body h1 {
+  font-size: 1.8em;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 6px;
+}
+
+.question-stem .markdown-body h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #e5e7eb;
+  padding-bottom: 4px;
+}
+
+.question-stem .markdown-body h3 {
+  font-size: 1.3em;
+}
+
+.question-stem .markdown-body h4 {
+  font-size: 1.1em;
+}
+
+/* 第一个段落不要上边距 */
+.question-stem .markdown-body > p:first-child {
+  margin-top: 0;
+}
+</style>
+
 <h2>🎲 随机练习</h2>
 <p>第 {{ current_index }} / {{ total }} 题</p>
 
@@ -62,37 +220,41 @@
     </div>
   {% endif %}
   
-  <h3>{{ question.stem|render_stem }}</h3>
+  <!-- 题干支持 Markdown 渲染 -->
+  <div class="question-stem markdown-body">
+    {{ question.stem|render_markdown }}
+  </div>
+  
   <form method="post" action="{{ url_for('random_practice_submit', session_id=session.id, index=index) }}">
     {% if question.qtype in ['single', 'multiple'] %}
       {% for choice in question.choices|sort(attribute='option_key') %}
-        <p>
+        <div class="question-option markdown-body">
           <label>
             <input type="{{ 'checkbox' if question.qtype == 'multiple' else 'radio' }}" name="answer" value="{{ choice.option_key }}">
-            {{ choice.option_key }}. {{ choice.option_text|safe }}
+            <strong>{{ choice.option_key }}.</strong> 
+            <span class="option-text">{{ choice.option_text|render_markdown }}</span>
           </label>
-        </p>
+        </div>
       {% endfor %}
     {% else %}
-      <p><input name="answer" placeholder="请输入填空答案" style="width: 100%;"></p>
+      <div class="question-blank">
+        <input name="answer" placeholder="请输入填空答案" style="width: 100%; padding: 8px; font-size: 14px;">
+      </div>
     {% endif %}
     <p><button type="submit">提交答案</button></p>
   </form>
 
  {% if status %}
     <hr>
-    <p>你的答案：{{ status.user_answer if status.user_answer else '（未作答）' }}</p>
-    <p>正确答案：{{ question.correct_answer }}</p>
+    <p><strong>你的答案：</strong>{{ status.user_answer if status.user_answer else '（未作答）' }}</p>
+    <p><strong>正确答案：</strong>{{ question.correct_answer }}</p>
     
     {% if question.qtype == 'blank' %}
-      {# 获取用户总状态用于判断是否待确认 #}
-      {% set user_status = historical_status %}
-      
       {% if not status.user_answer or not status.user_answer.strip() %}
-        <p style="padding:10px; background:#fff3cd; border-left:3px solid #ffc107;">
+        <div class="pending-notice">
           <strong>⚠️ 提示：</strong>你未作答此题，请查看答案解析
-        </p>
-      {% elif user_status and (user_status.is_correct == None or user_status.is_correct == '') %}
+        </div>
+      {% elif historical_status and (historical_status.is_correct == None or historical_status.is_correct == '') %}
         <div class="pending-notice">
           <strong>📝 待确认：</strong>请对比上方答案，自行评估是否正确
         </div>
@@ -104,29 +266,25 @@
             <button type="submit" class="btn-danger">✗ 我答错了</button>
           </form>
         </div>
-      {% elif user_status and user_status.is_correct %}
+      {% elif historical_status and historical_status.is_correct %}
         <p>结果：正确 ✓</p>
-      {% elif user_status and user_status.is_correct == false %}
+      {% elif historical_status and historical_status.is_correct == false %}
         <p>结果：错误 ✗</p>
-      {% endif %}
-      
-      {# 填空题无论是否作答都显示解析 #}
-      <p>解析：{{ question.explanation|render_explanation }}</p>
-      {% if question.ai_explanation %}
-      <div class="ai-explanation-box">
-        <p class="ai-explanation-title">🤖 AI 解析：</p>
-        <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
-      </div>
       {% endif %}
     {% else %}
       <p>结果：{{ '正确' if status.is_correct else '错误' }}</p>
-      <p>解析：{{ question.explanation|render_explanation }}</p>
-      {% if question.ai_explanation %}
-      <div class="ai-explanation-box">
-        <p class="ai-explanation-title">🤖 AI 解析：</p>
-        <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
-      </div>
-      {% endif %}
+    {% endif %}
+    
+    <div class="explanation-section">
+      <p><strong>解析：</strong></p>
+      <div class="markdown-body">{{ question.explanation|render_markdown }}</div>
+    </div>
+    
+    {% if question.ai_explanation %}
+    <div class="ai-explanation-box">
+      <p class="ai-explanation-title">🤖 AI 解析：</p>
+      <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
+    </div>
     {% endif %}
   {% endif %}
 
