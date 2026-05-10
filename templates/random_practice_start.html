@@ -1,20 +1,122 @@
 {% extends "base.html" %}
-{% block title %}随机刷题{% endblock %}
+{% block title %}随机练习{% endblock %}
 {% block content %}
-<h2>🎲 随机刷题</h2>
+<style>
+.category-selector {
+  margin: 16px 0;
+}
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.category-item {
+  position: relative;
+}
+
+.category-item input[type="checkbox"] {
+  display: none;
+}
+
+.category-item label {
+  display: block;
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: white;
+  font-size: 14px;
+}
+
+.category-item label:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.category-item input[type="checkbox"]:checked + label {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1e40af;
+  font-weight: 600;
+}
+
+.category-item .category-count {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.select-all-btn {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 8px;
+  transition: all 0.2s;
+}
+
+.select-all-btn:hover {
+  background: #e5e7eb;
+}
+
+.selected-info {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: #eff6ff;
+  border-left: 4px solid #2563eb;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #1e40af;
+}
+</style>
+
+<h2>🎲 随机练习</h2>
 
 <div class="card">
-  <h3>智能抽题策略</h3>
-  <ul style="line-height: 2;">
-    <li>✅ <strong>优先未做过</strong>：优先抽取您还未练习过的题目</li>
-    <li>✅ <strong>均衡分类</strong>：自动平衡各个题库的题目数量</li>
-    <li>✅ <strong>智能补充</strong>：未做过的题目不足时，从已做过的题目中随机补充</li>
-  </ul>
-</div>
-
-<div class="card">
-  <h3>设置抽题数量</h3>
-  <form method="post" action="{{ url_for('random_practice_start') }}">
+  <h3>📚 选择题库（可多选）</h3>
+  
+  <div class="category-selector">
+    <div style="margin-bottom: 12px;">
+      <button type="button" class="select-all-btn" onclick="selectAll()">✅ 全选</button>
+      <button type="button" class="select-all-btn" onclick="deselectAll()">❌ 取消全选</button>
+      <button type="button" class="select-all-btn" onclick="invertSelection()">🔄 反选</button>
+    </div>
+    
+    <div class="category-grid" id="categoryGrid">
+      {% for c in categories %}
+      <div class="category-item">
+        <input type="checkbox" 
+               id="cat_{{ c.id }}" 
+               name="categories" 
+               value="{{ c.id }}"
+               data-category-name="{{ c.name }}">
+        <label for="cat_{{ c.id }}">
+          {{ c.name }}
+          <span class="category-count">{{ c.questions|length if c.questions else 0 }} 题</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    
+    <div class="selected-info" id="selectedInfo">
+      已选择 <strong>0</strong> 个题库
+    </div>
+  </div>
+  
+  <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;">
+  
+  <h3>⚙️ 抽题设置</h3>
+  <form method="post" action="{{ url_for('random_practice_start') }}" id="randomPracticeForm">
+    <!-- 隐藏字段：存储选中的题库 ID -->
+    <input type="hidden" name="category_ids" id="categoryIdsInput">
+    
     <div style="margin-bottom: 16px;">
       <label style="display:block; margin-bottom:8px;">
         计划抽取题目数量：
@@ -29,12 +131,22 @@
     
     <div style="margin-bottom: 16px;">
       <label style="display:block; margin-bottom:8px;">
-        <input type="checkbox" name="include_wrong" value="1" checked>
-        <strong>包含少量错题</strong>
+        <input type="checkbox" name="include_wrong" value="1" checked onchange="toggleWrongCount()">
+        <strong>包含错题</strong>
       </label>
-      <p class="muted" style="margin-left:24px; font-size:14px;">
-        勾选后会从你的错题中随机抽取 1-2 道，帮助巩固薄弱环节。<br>
-        答题时会提示"这题你做过"，但不会显示之前的答案。
+      <div id="wrong-count-setting" style="margin-left:24px; margin-top:8px; display:block;">
+        <label style="display:inline-block; margin-right:8px;">
+          错题数量：
+        </label>
+        <input type="number" name="wrong_count" value="1" min="1" max="10" 
+               style="width: 80px; font-size: 16px; padding: 6px;" 
+               placeholder="错题数">
+        <span style="font-size:13px; color:#6b7280; margin-left:8px;">
+          （默认 1 道，最多 10 道）
+        </span>
+      </div>
+      <p class="muted" style="margin-left:24px; font-size:14px; margin-top:6px;">
+        从你的错题中抽取指定数量的题目，帮助巩固薄弱环节。
       </p>
     </div>
     
@@ -44,13 +156,107 @@
   </form>
 </div>
 
-<div class="card">
-  <h3>💡 使用建议</h3>
-  <ul style="line-height: 1.8;">
-    <li>适合考前模拟和日常巩固</li>
-    <li>系统会自动记录您的答题情况</li>
-    <li>答错的题目会自动加入错题库</li>
-    <li>填空题需要自行判断对错</li>
-  </ul>
-</div>
+<script>
+// 页面加载时恢复之前的选择
+document.addEventListener('DOMContentLoaded', function() {
+  loadCategorySelection();
+  updateSelectedInfo();
+  
+  // 监听所有 checkbox 变化
+  document.querySelectorAll('.category-item input[type="checkbox"]').forEach(cb => {
+    cb.addEventListener('change', function() {
+      saveCategorySelection();
+      updateSelectedInfo();
+    });
+  });
+});
+
+// 保存选择到 localStorage
+function saveCategorySelection() {
+  const selected = [];
+  document.querySelectorAll('.category-item input[type="checkbox"]:checked').forEach(cb => {
+    selected.push(parseInt(cb.value));
+  });
+  localStorage.setItem('random_practice_categories', JSON.stringify(selected));
+}
+
+// 从 localStorage 加载选择
+function loadCategorySelection() {
+  const saved = localStorage.getItem('random_practice_categories');
+  if (saved) {
+    try {
+      const selectedIds = JSON.parse(saved);
+      selectedIds.forEach(id => {
+        const cb = document.getElementById('cat_' + id);
+        if (cb) {
+          cb.checked = true;
+        }
+      });
+    } catch (e) {
+      console.error('加载题库选择失败:', e);
+    }
+  }
+}
+
+// 更新选中信息
+function updateSelectedInfo() {
+  const count = document.querySelectorAll('.category-item input[type="checkbox"]:checked').length;
+  document.getElementById('selectedInfo').innerHTML = `已选择 <strong>${count}</strong> 个题库`;
+}
+
+// 全选
+function selectAll() {
+  document.querySelectorAll('.category-item input[type="checkbox"]').forEach(cb => {
+    cb.checked = true;
+  });
+  saveCategorySelection();
+  updateSelectedInfo();
+}
+
+// 取消全选
+function deselectAll() {
+  document.querySelectorAll('.category-item input[type="checkbox"]').forEach(cb => {
+    cb.checked = false;
+  });
+  saveCategorySelection();
+  updateSelectedInfo();
+}
+
+// 反选
+function invertSelection() {
+  document.querySelectorAll('.category-item input[type="checkbox"]').forEach(cb => {
+    cb.checked = !cb.checked;
+  });
+  saveCategorySelection();
+  updateSelectedInfo();
+}
+
+// 切换错题数量显示
+function toggleWrongCount() {
+  const checkbox = document.querySelector('input[name="include_wrong"]');
+  const setting = document.getElementById('wrong-count-setting');
+  setting.style.display = checkbox.checked ? 'block' : 'none';
+}
+
+// 表单提交前准备
+document.getElementById('randomPracticeForm').addEventListener('submit', function(e) {
+  // 收集选中的题库 ID
+  const selectedIds = [];
+  document.querySelectorAll('.category-item input[type="checkbox"]:checked').forEach(cb => {
+    selectedIds.push(cb.value);
+  });
+  
+  if (selectedIds.length === 0) {
+    e.preventDefault();
+    alert('请至少选择一个题库！');
+    return;
+  }
+  
+  // 将选中的 ID 放入隐藏字段
+  document.getElementById('categoryIdsInput').value = selectedIds.join(',');
+});
+
+// 初始化
+toggleWrongCount();
+</script>
 {% endblock %}

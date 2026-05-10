@@ -220,9 +220,9 @@
     </div>
   {% endif %}
   
-  <!-- 题干支持 Markdown 渲染 -->
+  <!-- 题干支持 Markdown 渲染，并处理 {blank} 占位符 -->
   <div class="question-stem markdown-body">
-    {{ question.stem|render_markdown }}
+    {{ question.stem|render_markdown_with_blanks }}
   </div>
   
   <form method="post" action="{{ url_for('random_practice_submit', session_id=session.id, index=index) }}">
@@ -232,7 +232,7 @@
           <label>
             <input type="{{ 'checkbox' if question.qtype == 'multiple' else 'radio' }}" name="answer" value="{{ choice.option_key }}">
             <strong>{{ choice.option_key }}.</strong> 
-            <span class="option-text">{{ choice.option_text|render_markdown }}</span>
+            <span class="option-text">{{ choice.option_text|render_markdown_with_blanks }}</span>
           </label>
         </div>
       {% endfor %}

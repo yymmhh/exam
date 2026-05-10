@@ -40,6 +40,7 @@
       <a href="{{ url_for('admin_questions', category_id=c.id) }}">{{ c.name }}</a>
       (<a href="{{ url_for('admin_category_edit', category_id=c.id) }}">编辑</a>)
       (<a href="{{ url_for('admin_add_question', category_id=c.id) }}">➕ 添加题目</a>)
+      (<a href="{{ url_for('admin_import_questions', category_id=c.id) }}">📥 批量导入</a>)
     </li>
     {% endfor %}
   </ul>

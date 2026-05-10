@@ -28,6 +28,14 @@ app.config["SECRET_KEY"] = "replace-this-in-production"
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///exam.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
+# 允许的图片和最大大小
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB（原来是图片上传的限制）
+
+# 设置 Flask 最大请求体大小（用于 JSON 导入）
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB，支持大量题目导入
+app.config['UPLOAD_FOLDER'] = 'static/exam_images'
+
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = "login"
@@ -238,6 +246,7 @@ class RandomPracticeQuestion(db.Model):
 def load_user(user_id):
     return db.session.get(User, int(user_id))
 
+
 # ... existing code ...
 
 @app.route("/admin/question/add", methods=["GET", "POST"])
@@ -356,6 +365,25 @@ def render_stem(stem: str) -> str:
     # 标题允许直接渲染 HTML（如 <img>、<span> 等）
     return Markup(s)
 
+@app.template_filter("render_markdown_with_blanks")
+def render_markdown_with_blanks(stem: str) -> Markup:
+    """
+    支持 Markdown 渲染，同时处理 {blank} 占位符
+    """
+    if not stem:
+        return Markup("")
+    
+    # 先替换 {blank} 占位符
+    s = stem.replace("{blank}", "**(_____)**")  # 用粗体显示空白
+    
+    # 然后渲染 Markdown
+    html_content = markdown.markdown(
+        s,
+        extensions=['extra', 'codehilite', 'toc', 'nl2br'],
+        output_format='html5'
+    )
+    
+    return Markup(html_content)
 
 @app.template_filter("render_explanation")
 def render_explanation(explanation: str) -> Markup:
@@ -1243,10 +1271,10 @@ def admin_question_delete(question_id):
     flash("题目已删除。", "success")
     return redirect(url_for("admin_questions", category_id=category_id))
 
-
 @app.route("/admin/import/<int:category_id>", methods=["GET", "POST"])
 @login_required
 def admin_import_questions(category_id):
+    """批量导入题目（文本方式）"""
     if not admin_required():
         return redirect(url_for("index"))
     category = db.session.get(Category, category_id)
@@ -1267,6 +1295,7 @@ def admin_import_questions(category_id):
                 stem = row.get("stem", "").strip()
                 answer = str(row.get("answer", "")).strip()
                 explanation = str(row.get("explanation", "")).strip()
+                ai_explanation = str(row.get("ai_explanation", "")).strip()
                 options = row.get("options", {})
                 if qtype not in ("single", "multiple", "blank") or not stem or not answer:
                     continue
@@ -1276,6 +1305,7 @@ def admin_import_questions(category_id):
                     stem=stem,
                     correct_answer=answer,
                     explanation=explanation,
+                    ai_explanation=ai_explanation if ai_explanation else None
                 )
                 db.session.add(q)
                 db.session.flush()
@@ -1315,6 +1345,94 @@ def admin_import_questions(category_id):
   }
 ]"""
     return render_template("admin_import.html", category=category, sample=sample)
+
+
+@app.route("/admin/import-file/<int:category_id>", methods=["POST"])
+@login_required
+def admin_import_questions_file(category_id):
+    """批量导入题目（文件上传方式）"""
+    if not admin_required():
+        return jsonify({'success': False, 'error': '无权限'}), 403
+    
+    category = db.session.get(Category, category_id)
+    if not category:
+        flash("分类不存在。", "error")
+        return redirect(url_for("admin_home"))
+    
+    if 'json_file' not in request.files:
+        flash("请上传 JSON 文件。", "error")
+        return redirect(url_for("admin_import_questions", category_id=category_id))
+    
+    json_file = request.files['json_file']
+    
+    if json_file.filename == '':
+        flash("未选择文件。", "error")
+        return redirect(url_for("admin_import_questions", category_id=category_id))
+    
+    try:
+        # 读取 JSON 文件
+        import json as json_module
+        questions_data = json_module.load(json_file.stream)
+        
+        if not isinstance(questions_data, list):
+            flash("JSON 文件格式错误，应该是题目数组。", "error")
+            return redirect(url_for("admin_import_questions", category_id=category_id))
+        
+        imported_count = 0
+        error_count = 0
+        
+        for q_data in questions_data:
+            try:
+                # 验证必填字段
+                if not all(k in q_data for k in ['qtype', 'stem', 'answer']):
+                    error_count += 1
+                    continue
+                
+                # 创建题目
+                question = Question(
+                    stem=q_data['stem'],
+                    qtype=q_data['qtype'],
+                    correct_answer=q_data['answer'],
+                    explanation=q_data.get('explanation', ''),
+                    ai_explanation=q_data.get('ai_explanation', ''),
+                    category_id=category.id
+                )
+                db.session.add(question)
+                db.session.flush()
+                
+                # 处理选项（如果有）
+                if 'options' in q_data and isinstance(q_data['options'], dict):
+                    for opt_key, opt_text in q_data['options'].items():
+                        choice = Choice(
+                            question_id=question.id,
+                            option_key=opt_key.strip().upper(),
+                            option_text=str(opt_text)
+                        )
+                        db.session.add(choice)
+                
+                imported_count += 1
+                
+            except Exception as e:
+                error_count += 1
+                print(f"导入题目失败: {e}")
+                continue
+        
+        db.session.commit()
+        
+        if imported_count > 0:
+            flash(f"成功导入 {imported_count} 道题目！{'失败 ' + str(error_count) + ' 道' if error_count > 0 else ''}", "success")
+        else:
+            flash("没有成功导入任何题目，请检查 JSON 格式。", "error")
+        
+        return redirect(url_for("admin_questions", category_id=category.id))
+        
+    except json_module.JSONDecodeError:
+        flash("JSON 文件格式错误，无法解析。", "error")
+        return redirect(url_for("admin_import_questions", category_id=category_id))
+    except Exception as e:
+        flash(f"导入失败：{str(e)}", "error")
+        return redirect(url_for("admin_import_questions", category_id=category_id))
+
 
 
 @app.post("/admin/user/toggle_admin/<int:user_id>")
@@ -1408,16 +1526,23 @@ def init_db():
             db.session.add(admin)
             db.session.commit()
 
-def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: bool = False) -> list:
+def get_smart_random_questions(user_id: int, category_ids: list, count: int = 10, include_wrong: bool = False, wrong_count: int = 1) -> list:
     """
     智能抽取题目：优先未做过的，动态平衡各题库抽取次数
     
     Args:
         user_id: 用户 ID
+        category_ids: 题库 ID 列表
         count: 抽取数量
-        include_wrong: 是否包含少量错题（总共 1-2 道）
+        include_wrong: 是否包含错题
+        wrong_count: 错题数量（默认 1 道）
     """
-    all_categories = Category.query.all()
+    # 如果没有指定题库，使用所有题库
+    if not category_ids:
+        all_categories = Category.query.all()
+    else:
+        all_categories = Category.query.filter(Category.id.in_(category_ids)).all()
+    
     if not all_categories:
         return []
     
@@ -1438,7 +1563,6 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
     
     # 构建分类数据，并统计每个分类已被抽取的次数
     category_questions = {}
-    category_pick_count = {}  # 记录每个分类在本次抽取前已被抽过的次数
     
     for cat in all_categories:
         all_qs = Question.query.filter_by(category_id=cat.id).all()
@@ -1456,9 +1580,6 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
         # 已答对的题目（不加入候选池）
         correct_qs = [q for q in all_qs if q.id in correct_question_ids]
         
-        # 统计该分类在历史记录中已被抽过的次数（用于平衡）
-        # 这里简化处理：假设之前每次随机刷题都会均匀抽取，所以不特别统计历史
-        
         category_questions[cat.id] = {
             'category': cat,
             'all': all_qs,
@@ -1469,12 +1590,12 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
             'has_undone': len(undone_qs) > 0,
             'pick_count': 0  # 本次抽取过程中，该分类被抽到的次数
         }
-        category_pick_count[cat.id] = 0
     
-    # 计算错题数量
+    # 计算实际需要抽取的错题数量
     total_wrong_needed = 0
     if include_wrong and wrong_question_ids:
-        total_wrong_needed = min(2, max(1, count // 10))
+        # 限制在 1-10 道之间
+        total_wrong_needed = max(1, min(wrong_count, 10))
     
     # 需要抽取的非错题数量
     normal_count = count - total_wrong_needed
@@ -1541,19 +1662,29 @@ def get_smart_random_questions(user_id: int, count: int = 10, include_wrong: boo
 
 
 
+
 @app.route("/random-practice/start", methods=["GET", "POST"])
 @login_required
 def random_practice_start():
     """开始随机练习"""
     if request.method == "POST":
+        # 获取选中的题库 IDs
+        category_ids_str = request.form.get("category_ids", "")
+        
+        if category_ids_str:
+            category_ids = [int(cid) for cid in category_ids_str.split(",") if cid.strip()]
+        else:
+            category_ids = []  # 空列表表示所有题库
+        
         count = int(request.form.get("count", "10"))
         include_wrong = request.form.get("include_wrong") == "1"
+        wrong_count = int(request.form.get("wrong_count", "1"))
         
         # 智能抽取题目
-        picked = get_smart_random_questions(current_user.id, count, include_wrong)
+        picked = get_smart_random_questions(current_user.id, category_ids, count, include_wrong, wrong_count)
         
         if not picked:
-            flash("暂无题目，无法开始练习。", "error")
+            flash("所选题库暂无题目，无法开始练习。", "error")
             return redirect(url_for("index"))
         
         # 获取用户的错题 ID 集合
@@ -1585,7 +1716,9 @@ def random_practice_start():
         
         return redirect(url_for("random_practice_question", session_id=session.id, index=1))
     
-    return render_template("random_practice_start.html")
+    # GET: 显示开始页面
+    categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
+    return render_template("random_practice_start.html", categories=categories)
 
 
 @app.route("/random-practice/<int:session_id>/<int:index>")

@@ -1,10 +1,255 @@
 {% extends "base.html" %}
 {% block title %}导入题目{% endblock %}
 {% block content %}
-<h2>导入题目 - {{ category.name }}</h2>
-<p>请粘贴 JSON 数组，格式参考下方示例。</p>
-<form method="post" class="card">
-  <textarea name="content" required>{{ sample }}</textarea>
-  <p><button type="submit">开始导入</button></p>
-</form>
+<style>
+.import-container {
+  max-width: 900px;
+}
+
+.json-sample {
+  background: #f6f8fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 16px;
+  margin: 16px 0;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+
+.import-textarea {
+  width: 100%;
+  min-height: 300px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.file-upload-box {
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  margin: 16px 0;
+  transition: all 0.3s;
+  background: #f9fafb;
+}
+
+.file-upload-box:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.file-upload-box.dragover {
+  border-color: #2563eb;
+  background: #dbeafe;
+}
+
+.upload-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.upload-btn {
+  background: #2563eb;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-top: 12px;
+}
+
+.upload-btn:hover {
+  background: #1e4fcc;
+}
+
+.tab-buttons {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.tab-btn {
+  padding: 10px 20px;
+  border: 1px solid #d1d5db;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.tab-btn.active {
+  background: #2563eb;
+  color: white;
+  border-color: #2563eb;
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+.import-tips {
+  background: #eff6ff;
+  border-left: 4px solid #2563eb;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 4px;
+}
+
+.import-tips ul {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.import-tips li {
+  margin: 4px 0;
+  font-size: 14px;
+}
+</style>
+
+<div class="import-container">
+  <h2>📥 导入题目 - {{ category.name }}</h2>
+  
+  <div class="card">
+    <p style="color:#6b7280; margin-bottom:16px;">
+      请选择导入方式：粘贴 JSON 文本或上传 JSON 文件（推荐大文件使用文件上传）。
+    </p>
+    
+    <!-- 切换标签 -->
+    <div class="tab-buttons">
+      <button type="button" class="tab-btn active" onclick="switchTab('text')">📝 粘贴文本</button>
+      <button type="button" class="tab-btn" onclick="switchTab('file')">📁 上传文件</button>
+    </div>
+    
+    <!-- 文本导入 -->
+    <div id="tab-text" class="tab-content active">
+      <div class="import-tips">
+        <strong>💡 导入提示：</strong>
+        <ul>
+          <li>支持三种题型：<code>single</code>（单选）、<code>multiple</code>（多选）、<code>blank</code>（填空）</li>
+          <li>选择题需要 <code>options</code> 字段，填空题不需要</li>
+          <li>多选题答案用逗号分隔，如：<code>"A,B"</code></li>
+          <li>可以包含 <code>ai_explanation</code> 字段用于 AI 解析</li>
+          <li>题干和选项中可以使用 HTML 标签（如 <code>&lt;img&gt;</code>）插入图片</li>
+        </ul>
+      </div>
+      
+      <form method="post" action="{{ url_for('admin_import_questions', category_id=category.id) }}">
+        <label style="display:block; margin-bottom:8px;"><strong>JSON 数据：</strong></label>
+        <textarea name="content" class="import-textarea" required>{{ sample }}</textarea>
+        
+        <div style="margin-top:16px; display:flex; gap:12px;">
+          <button type="submit" style="background:#2563eb; padding:12px 24px; font-size:16px;">
+            🚀 开始导入
+          </button>
+          <a href="{{ url_for('admin_questions', category_id=category.id) }}" 
+             style="padding:12px 24px; background:#6b7280; color:white; text-decoration:none; border-radius:4px;">
+            ← 返回题目列表
+          </a>
+        </div>
+      </form>
+    </div>
+    
+    <!-- 文件上传 -->
+    <div id="tab-file" class="tab-content">
+      <div class="import-tips">
+        <strong>💡 文件要求：</strong>
+        <ul>
+          <li>文件格式：JSON (.json)</li>
+          <li>文件大小：最大 50MB</li>
+          <li>编码格式：UTF-8</li>
+          <li>内容格式：与文本导入相同</li>
+        </ul>
+      </div>
+      
+      <form method="post" action="{{ url_for('admin_import_questions_file', category_id=category.id) }}" enctype="multipart/form-data">
+        <div class="file-upload-box" id="dropZone">
+          <div class="upload-icon">📄</div>
+          <p style="margin:12px 0; color:#6b7280;">拖拽 JSON 文件到此处，或点击选择文件</p>
+          <input type="file" id="jsonFile" name="json_file" accept=".json" style="display:none;" required>
+          <button type="button" class="upload-btn" onclick="document.getElementById('jsonFile').click()">
+            选择文件
+          </button>
+          <p id="fileName" style="margin-top:12px; font-weight:bold; color:#2563eb;"></p>
+        </div>
+        
+        <div style="margin-top:16px; display:flex; gap:12px;">
+          <button type="submit" style="background:#2563eb; padding:12px 24px; font-size:16px;">
+            🚀 开始导入
+          </button>
+          <a href="{{ url_for('admin_questions', category_id=category.id) }}" 
+             style="padding:12px 24px; background:#6b7280; color:white; text-decoration:none; border-radius:4px;">
+            ← 返回题目列表
+          </a>
+        </div>
+      </form>
+    </div>
+  </div>
+  
+  <div class="card">
+    <h3>📋 JSON 格式示例：</h3>
+    <div class="json-sample">{{ sample }}</div>
+  </div>
+</div>
+
+<script>
+// 切换标签
+function switchTab(tab) {
+  // 隐藏所有内容
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+  
+  // 显示选中的内容
+  document.getElementById('tab-' + tab).classList.add('active');
+  event.target.classList.add('active');
+}
+
+// 文件上传交互
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('jsonFile');
+const fileName = document.getElementById('fileName');
+
+// 点击选择文件
+fileInput.addEventListener('change', function() {
+  if (this.files.length > 0) {
+    fileName.textContent = '✅ 已选择：' + this.files[0].name;
+  }
+});
+
+// 拖拽功能
+dropZone.addEventListener('dragover', function(e) {
+  e.preventDefault();
+  this.classList.add('dragover');
+});
+
+dropZone.addEventListener('dragleave', function() {
+  this.classList.remove('dragover');
+});
+
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  this.classList.remove('dragover');
+  
+  const files = e.dataTransfer.files;
+  if (files.length > 0 && files[0].name.endsWith('.json')) {
+    fileInput.files = files;
+    fileName.textContent = '✅ 已选择：' + files[0].name;
+  } else {
+    alert('请上传 .json 文件');
+  }
+});
+</script>
 {% endblock %}
