@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block title %}Anki 刷题{% endblock %}
+{% block content %}
+<style>
+.category-selector { margin: 16px 0; }
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.category-item input[type="checkbox"] { display: none; }
+.category-item label {
+  display: block;
+  padding: 12px 16px;
+  border: 2px solid #e5e7eb;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  background: white;
+  font-size: 14px;
+}
+.category-item label:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+.category-item input[type="checkbox"]:checked + label {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1e40af;
+  font-weight: 600;
+}
+.category-item .category-count {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.select-all-btn {
+  background: #f3f4f6;
+  border: 1px solid #d1d5db;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-right: 8px;
+}
+.anki-intro {
+  background: linear-gradient(135deg, #0f766e 0%, #115e59 100%);
+  color: white;
+  padding: 20px 24px;
+  border-radius: 12px;
+  margin-bottom: 20px;
+}
+.anki-intro h2 { color: white; margin: 0 0 8px; }
+.anki-intro p { margin: 0; opacity: 0.92; font-size: 14px; line-height: 1.6; }
+</style>
+
+<div class="anki-intro">
+  <h2>📇 Anki 刷题</h2>
+  <p>先看题目回忆答案，点击「显示答案」后对照解析，再选择下次复习间隔（重来 / 困难 / 良好 / 简单）。系统会按你的选择安排下次出现时间。</p>
+</div>
+
+<div class="card">
+  <h3>📚 选择题库（可多选）</h3>
+  <div class="category-selector">
+    <div style="margin-bottom: 12px;">
+      <button type="button" class="select-all-btn" onclick="selectAll()">全选</button>
+      <button type="button" class="select-all-btn" onclick="deselectAll()">取消全选</button>
+    </div>
+    <div class="category-grid" id="categoryGrid">
+      {% for item in category_stats %}
+      <div class="category-item">
+        <input type="checkbox" id="cat_{{ item.category.id }}" name="categories" value="{{ item.category.id }}">
+        <label for="cat_{{ item.category.id }}">
+          {{ item.category.name }}
+          <span class="category-count">{{ item.count }} 题可刷</span>
+        </label>
+      </div>
+      {% endfor %}
+    </div>
+    <p class="muted" id="selectedInfo" style="margin-top:12px;">已选择 <strong>0</strong> 个题库</p>
+  </div>
+
+  <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;">
+
+  <h3>⚙️ 刷题设置</h3>
+  <form method="post" action="{{ url_for('anki_start') }}" id="ankiForm">
+    <input type="hidden" name="category_ids" id="categoryIdsInput">
+
+    <div style="margin-bottom: 20px;">
+      <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
+        <input type="checkbox" name="include_correct" value="1" style="margin-top:4px;">
+        <span>
+          <strong>包含练习中已答对的题目</strong><br>
+          <span class="muted" style="font-size:13px;">不勾选时，只刷未答对或从未做过的题（适合巩固薄弱点）</span>
+        </span>
+      </label>
+    </div>
+
+    <button type="submit" style="background:#0f766e; border-color:#0f766e; padding:12px 24px; font-size:16px; color:white; border-radius:8px; cursor:pointer; border:none;">
+      开始刷题 →
+    </button>
+  </form>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const saved = localStorage.getItem('anki_categories');
+  if (saved) {
+    try {
+      JSON.parse(saved).forEach(id => {
+        const cb = document.getElementById('cat_' + id);
+        if (cb) cb.checked = true;
+      });
+    } catch (e) {}
+  }
+  updateSelectedInfo();
+  document.querySelectorAll('.category-item input').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const ids = [];
+      document.querySelectorAll('.category-item input:checked').forEach(c => ids.push(parseInt(c.value)));
+      localStorage.setItem('anki_categories', JSON.stringify(ids));
+      updateSelectedInfo();
+    });
+  });
+});
+
+function updateSelectedInfo() {
+  const n = document.querySelectorAll('.category-item input:checked').length;
+  document.getElementById('selectedInfo').innerHTML = `已选择 <strong>${n}</strong> 个题库`;
+}
+
+function selectAll() {
+  document.querySelectorAll('.category-item input').forEach(cb => { cb.checked = true; });
+  updateSelectedInfo();
+}
+
+function deselectAll() {
+  document.querySelectorAll('.category-item input').forEach(cb => { cb.checked = false; });
+  updateSelectedInfo();
+}
+
+document.getElementById('ankiForm').addEventListener('submit', function(e) {
+  const ids = [];
+  document.querySelectorAll('.category-item input:checked').forEach(cb => ids.push(cb.value));
+  if (!ids.length) {
+    e.preventDefault();
+    alert('请至少选择一个题库！');
+    return;
+  }
+  document.getElementById('categoryIdsInput').value = ids.join(',');
+});
+</script>
+{% endblock %}

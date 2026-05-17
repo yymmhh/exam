@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+{% block title %}Anki 刷题中{% endblock %}
+{% block content %}
+<style>
+.anki-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #6b7280;
+}
+.anki-stats span {
+  background: #f3f4f6;
+  padding: 6px 12px;
+  border-radius: 6px;
+}
+.anki-card-area {
+  min-height: 200px;
+}
+.anki-choices {
+  margin: 16px 0;
+  padding: 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+}
+.anki-choices p { margin: 8px 0; color: #4b5563; }
+.anki-answer-block {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 2px dashed #e5e7eb;
+}
+.anki-reveal-btn {
+  background: #0f766e;
+  color: white;
+  border: none;
+  padding: 14px 28px;
+  font-size: 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  width: 100%;
+  max-width: 320px;
+}
+.anki-reveal-btn:hover { background: #0d9488; }
+.anki-rating-bar {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-top: 24px;
+}
+@media (max-width: 640px) {
+  .anki-rating-bar { grid-template-columns: repeat(2, 1fr); }
+}
+.anki-rate-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 14px 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.anki-rate-btn .hint {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.9;
+}
+.anki-rate-again { background: #dc2626; }
+.anki-rate-hard { background: #d97706; }
+.anki-rate-good { background: #2563eb; }
+.anki-rate-easy { background: #059669; }
+.anki-rate-btn:hover { filter: brightness(1.08); }
+.anki-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+</style>
+
+<div class="anki-toolbar">
+  <h2 style="margin:0;">📇 Anki 刷题</h2>
+  <form method="post" action="{{ url_for('anki_end') }}" style="margin:0;">
+    <button type="submit" class="btn-light" onclick="return confirm('确定结束本次刷题？');">结束刷题</button>
+  </form>
+</div>
+
+<div class="anki-stats">
+  <span>题库内 {{ stats.total }} 题</span>
+  <span>待复习 {{ stats.due }} 题</span>
+  <span>新卡片 {{ stats.new }} 题</span>
+  {% if again_count > 0 %}
+  <span style="background:#fee2e2; color:#991b1b;">本轮待重刷 {{ again_count }} 题</span>
+  {% endif %}
+</div>
+
+<div class="card anki-card-area">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
+    <div style="font-size:14px; color:#6c757d;">
+      <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
+        📚 {{ question.category.name }}
+      </span>
+      <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
+        🔖 ID: {{ question.id }}
+      </span>
+    </div>
+    <div style="font-size:13px; color:#6c757d;">
+      {% if question.qtype == 'single' %}单选题
+      {% elif question.qtype == 'multiple' %}多选题
+      {% elif question.qtype == 'blank' %}填空题
+      {% endif %}
+    </div>
+  </div>
+
+  <h3>{{ question.stem|render_stem }}</h3>
+
+  {% if question.qtype in ['single', 'multiple'] %}
+  <div class="anki-choices">
+    <p class="muted" style="margin:0 0 8px;">选项（请先回忆再显示答案）：</p>
+    {% for choice in question.choices|sort(attribute='option_key') %}
+    <p>{{ choice.option_key }}. {{ choice.option_text|safe }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not show_answer %}
+  <form method="post" action="{{ url_for('anki_reveal', question_id=question.id) }}" style="margin-top:24px; text-align:center;">
+    <button type="submit" class="anki-reveal-btn">显示答案</button>
+  </form>
+  <p class="muted" style="text-align:center; margin-top:12px; font-size:13px;">
+    在心里作答后，再点击查看正确答案与解析
+  </p>
+  {% else %}
+  <div class="anki-answer-block">
+    <p><strong>正确答案：</strong>{{ question.correct_answer }}</p>
+
+    {% if question.qtype in ['single', 'multiple'] %}
+    <div style="margin:12px 0;">
+      {% for choice in question.choices|sort(attribute='option_key') %}
+        {% set keys = question.correct_answer.replace(' ', '').split(',') %}
+        {% if choice.option_key in keys %}
+        <p style="margin:4px 0; color:#059669;"><strong>{{ choice.option_key }}.</strong> {{ choice.option_text|safe }} ✓</p>
+        {% endif %}
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if question.explanation %}
+    <p><strong>解析：</strong>{{ question.explanation|render_explanation }}</p>
+    {% endif %}
+    {% if question.ai_explanation %}
+    <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff; border-radius:6px;">
+      <p style="margin:0 0 10px 0; font-weight:bold; color:#007bff;">🤖 AI 解析：</p>
+      <div class="markdown-body">{{ question.ai_explanation|render_markdown }}</div>
+    </div>
+    {% endif %}
+
+    <p class="muted" style="margin-top:16px; font-size:14px;">
+      对照答案后，请选择你掌握程度对应的下次复习时间：
+    </p>
+
+    <div class="anki-rating-bar">
+      {% for btn in rating_buttons %}
+      <form method="post" action="{{ url_for('anki_rate', question_id=question.id) }}">
+        <input type="hidden" name="rating" value="{{ btn.key }}">
+        <button type="submit" class="anki-rate-btn anki-rate-{{ btn.key }}">
+          {{ btn.label }}
+          <span class="hint">{{ btn.interval_hint }}</span>
+        </button>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

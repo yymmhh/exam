@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Anki 刷题完成{% endblock %}
+{% block content %}
+<div class="card" style="text-align:center; padding:32px;">
+  {% if reason == 'completed' %}
+  <h2 style="margin:0 0 12px;">🎉 本轮复习完成</h2>
+  <p class="muted">当前没有到期的卡片，也没有新卡片需要学习。</p>
+  {% if stats %}
+  <p style="margin-top:16px;">
+    题库共 {{ stats.total }} 题，其中 {{ stats.due }} 题待复习，{{ stats.new }} 题未学习。
+  </p>
+  {% endif %}
+  <p class="muted" style="font-size:14px;">稍后再来，或勾选「包含已答对题目」继续巩固。</p>
+  {% elif reason == 'manual' %}
+  <h2 style="margin:0 0 12px;">已结束刷题</h2>
+  <p class="muted">进度已保存，下次会从到期卡片继续。</p>
+  {% else %}
+  <h2 style="margin:0 0 12px;">暂无题目</h2>
+  <p class="muted">请调整题库或刷题设置后重试。</p>
+  {% endif %}
+
+  <div style="margin-top:24px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
+    <a href="{{ url_for('anki_start') }}" style="display:inline-block; background:#0f766e; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:600;">
+      返回设置
+    </a>
+    <a href="{{ url_for('index') }}" class="btn-light" style="display:inline-block; padding:12px 24px; text-decoration:none;">
+      回首页
+    </a>
+  </div>
+</div>
+{% endblock %}

@@ -2,11 +2,11 @@ import json
 import random
 import re
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import uuid
 from werkzeug.utils import secure_filename
-from flask import Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import func
 from sqlalchemy import inspect as sqlalchemy_inspect
 from sqlalchemy import text as sql_text
@@ -240,6 +240,22 @@ class RandomPracticeQuestion(db.Model):
     session = db.relationship(
         "RandomPracticeSession", backref=db.backref("random_practice_questions", lazy=True)
     )
+    question = db.relationship("Question")
+
+
+class AnkiCard(db.Model):
+    """Anki 间隔复习卡片状态"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    question_id = db.Column(db.Integer, db.ForeignKey("question.id"), nullable=False)
+    interval_days = db.Column(db.Float, default=0.0)
+    ease = db.Column(db.Float, default=2.5)
+    repetitions = db.Column(db.Integer, default=0)
+    next_review_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_reviewed_at = db.Column(db.DateTime, nullable=True)
+
+    __table_args__ = (db.UniqueConstraint("user_id", "question_id", name="uq_anki_card"),)
+
     question = db.relationship("Question")
 
 @login_manager.user_loader
@@ -2058,6 +2074,361 @@ def mark_wrong(question_id):
     
     return redirect(referrer or url_for("practice_question", category_id=question.category_id))
 
+
+ANKI_RATING_LABELS = {
+    "again": "重来",
+    "hard": "困难",
+    "good": "良好",
+    "easy": "简单",
+}
+
+
+def _anki_get_or_create_card(user_id: int, question_id: int) -> AnkiCard:
+    card = AnkiCard.query.filter_by(user_id=user_id, question_id=question_id).first()
+    if not card:
+        card = AnkiCard(
+            user_id=user_id,
+            question_id=question_id,
+            next_review_at=datetime.utcnow(),
+        )
+        db.session.add(card)
+        db.session.flush()
+    return card
+
+
+def _anki_format_interval(days: float) -> str:
+    if days < 1 / 1440:
+        return "<1 分钟"
+    if days < 1:
+        minutes = max(1, int(days * 24 * 60))
+        return f"{minutes} 分钟"
+    if days < 30:
+        if days < 2:
+            return f"{max(1, int(round(days)))} 天"
+        return f"{int(round(days))} 天"
+    months = days / 30
+    if months < 12:
+        return f"{months:.1f} 个月".replace(".0", "")
+    years = days / 365
+    return f"{years:.1f} 年".replace(".0", "")
+
+
+def _anki_preview_interval(card, rating: str) -> float:
+    ease = card.ease if card else 2.5
+    reps = card.repetitions if card else 0
+    interval = card.interval_days if card else 0.0
+
+    if rating == "again":
+        return 1 / 1440
+    if rating == "hard":
+        if reps == 0:
+            return 1.0
+        return max(1.0, interval * 1.2)
+    if rating == "good":
+        if reps == 0:
+            return 1.0
+        return max(1.0, interval * ease)
+    if rating == "easy":
+        if reps == 0:
+            return 4.0
+        return max(1.0, interval * ease * 1.3)
+    return 1.0
+
+
+def _anki_apply_rating(card: AnkiCard, rating: str) -> None:
+    now = datetime.utcnow()
+    if rating == "again":
+        card.interval_days = 0.0
+        card.repetitions = 0
+        card.ease = max(1.3, card.ease - 0.2)
+        card.next_review_at = now + timedelta(minutes=1)
+    elif rating == "hard":
+        if card.repetitions == 0:
+            card.interval_days = 1.0
+        else:
+            card.interval_days = max(1.0, card.interval_days * 1.2)
+        card.repetitions += 1
+        card.ease = max(1.3, card.ease - 0.15)
+        card.next_review_at = now + timedelta(days=card.interval_days)
+    elif rating == "good":
+        if card.repetitions == 0:
+            card.interval_days = 1.0
+        else:
+            card.interval_days = max(1.0, card.interval_days * card.ease)
+        card.repetitions += 1
+        card.next_review_at = now + timedelta(days=card.interval_days)
+    elif rating == "easy":
+        if card.repetitions == 0:
+            card.interval_days = 4.0
+        else:
+            card.interval_days = max(1.0, card.interval_days * card.ease * 1.3)
+        card.repetitions += 1
+        card.ease = min(3.0, card.ease + 0.15)
+        card.next_review_at = now + timedelta(days=card.interval_days)
+    card.last_reviewed_at = now
+
+
+def _anki_correct_question_ids(user_id: int) -> set[int]:
+    return {
+        s.question_id
+        for s in UserQuestionStatus.query.filter_by(
+            user_id=user_id, answered=True, is_correct=True
+        ).all()
+    }
+
+
+def _anki_pool_question_ids(user_id: int, category_ids: list[int], include_correct: bool) -> list[int]:
+    query = Question.query.filter(Question.category_id.in_(category_ids))
+    if not include_correct:
+        correct_ids = _anki_correct_question_ids(user_id)
+        if correct_ids:
+            query = query.filter(~Question.id.in_(correct_ids))
+    return [q.id for q in query.all()]
+
+
+def _anki_pick_next_question_id(user_id: int, pool_ids: list[int]) -> int | None:
+    if not pool_ids:
+        return None
+
+    again_queue = session.get("anki_again_queue") or []
+    for qid in again_queue:
+        if qid in pool_ids:
+            return qid
+
+    now = datetime.utcnow()
+    cards = {
+        c.question_id: c
+        for c in AnkiCard.query.filter(
+            AnkiCard.user_id == user_id, AnkiCard.question_id.in_(pool_ids)
+        ).all()
+    }
+
+    due_ids = [qid for qid in pool_ids if qid not in cards or cards[qid].next_review_at <= now]
+    new_ids = [qid for qid in pool_ids if qid not in cards]
+    learning_ids = [
+        qid
+        for qid in pool_ids
+        if qid in cards and cards[qid].repetitions == 0 and cards[qid].next_review_at <= now
+    ]
+
+    if learning_ids:
+        return random.choice(learning_ids)
+    if due_ids:
+        return random.choice(due_ids)
+    if new_ids:
+        return random.choice(new_ids)
+    return None
+
+
+def _anki_study_stats(user_id: int, pool_ids: list[int]) -> dict:
+    if not pool_ids:
+        return {"total": 0, "due": 0, "new": 0}
+    now = datetime.utcnow()
+    cards = {
+        c.question_id: c
+        for c in AnkiCard.query.filter(
+            AnkiCard.user_id == user_id, AnkiCard.question_id.in_(pool_ids)
+        ).all()
+    }
+    due = sum(1 for qid in pool_ids if qid not in cards or cards[qid].next_review_at <= now)
+    new = sum(1 for qid in pool_ids if qid not in cards)
+    return {"total": len(pool_ids), "due": due, "new": new}
+
+
+@app.route("/anki/start", methods=["GET", "POST"])
+@login_required
+def anki_start():
+    categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
+
+    if request.method == "POST":
+        category_ids_str = request.form.get("category_ids", "")
+        if category_ids_str:
+            category_ids = [int(cid) for cid in category_ids_str.split(",") if cid.strip()]
+        else:
+            category_ids = [c.id for c in categories]
+
+        if not category_ids:
+            flash("请至少选择一个题库。", "error")
+            return redirect(url_for("anki_start"))
+
+        include_correct = request.form.get("include_correct") == "1"
+        pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+        if not pool_ids:
+            flash("当前设置下没有可刷题目。", "error")
+            return redirect(url_for("anki_start"))
+
+        session["anki_category_ids"] = category_ids
+        session["anki_include_correct"] = include_correct
+        session["anki_again_queue"] = []
+        session.pop("anki_current_question_id", None)
+        return redirect(url_for("anki_study"))
+
+    category_stats = []
+    for c in categories:
+        pool = _anki_pool_question_ids(current_user.id, [c.id], include_correct=True)
+        category_stats.append({"category": c, "count": len(pool)})
+
+    return render_template(
+        "anki_start.html",
+        categories=categories,
+        category_stats=category_stats,
+    )
+
+
+@app.route("/anki/study")
+@login_required
+def anki_study():
+    category_ids = session.get("anki_category_ids")
+    if not category_ids:
+        flash("请先选择刷题设置。", "info")
+        return redirect(url_for("anki_start"))
+
+    include_correct = session.get("anki_include_correct", False)
+    pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+    if not pool_ids:
+        return render_template("anki_done.html", reason="empty")
+
+    question_id = _anki_pick_next_question_id(current_user.id, pool_ids)
+    if not question_id:
+        return render_template("anki_done.html", reason="completed", stats=_anki_study_stats(current_user.id, pool_ids))
+
+    question = db.session.get(Question, question_id)
+    if not question:
+        flash("题目不存在。", "error")
+        return redirect(url_for("anki_start"))
+
+    session["anki_current_question_id"] = question_id
+    card = AnkiCard.query.filter_by(user_id=current_user.id, question_id=question_id).first()
+    rating_buttons = []
+    for key in ("again", "hard", "good", "easy"):
+        preview_days = _anki_preview_interval(card, key)
+        rating_buttons.append(
+            {
+                "key": key,
+                "label": ANKI_RATING_LABELS[key],
+                "interval_hint": _anki_format_interval(preview_days),
+            }
+        )
+
+    stats = _anki_study_stats(current_user.id, pool_ids)
+    again_count = len(session.get("anki_again_queue") or [])
+
+    return render_template(
+        "anki_study.html",
+        question=question,
+        stats=stats,
+        again_count=again_count,
+        rating_buttons=rating_buttons,
+        show_answer=False,
+    )
+
+
+@app.post("/anki/study/<int:question_id>/reveal")
+@login_required
+def anki_reveal(question_id):
+    if session.get("anki_current_question_id") != question_id:
+        return redirect(url_for("anki_study"))
+
+    question = db.session.get(Question, question_id)
+    if not question:
+        flash("题目不存在。", "error")
+        return redirect(url_for("anki_start"))
+
+    category_ids = session.get("anki_category_ids") or []
+    include_correct = session.get("anki_include_correct", False)
+    pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+    card = AnkiCard.query.filter_by(user_id=current_user.id, question_id=question_id).first()
+    rating_buttons = []
+    for key in ("again", "hard", "good", "easy"):
+        preview_days = _anki_preview_interval(card, key)
+        rating_buttons.append(
+            {
+                "key": key,
+                "label": ANKI_RATING_LABELS[key],
+                "interval_hint": _anki_format_interval(preview_days),
+            }
+        )
+
+    stats = _anki_study_stats(current_user.id, pool_ids)
+    again_count = len(session.get("anki_again_queue") or [])
+
+    return render_template(
+        "anki_study.html",
+        question=question,
+        stats=stats,
+        again_count=again_count,
+        rating_buttons=rating_buttons,
+        show_answer=True,
+    )
+
+
+@app.post("/anki/study/<int:question_id>/rate")
+@login_required
+def anki_rate(question_id):
+    if session.get("anki_current_question_id") != question_id:
+        return redirect(url_for("anki_study"))
+
+    rating = request.form.get("rating", "").strip()
+    if rating not in ANKI_RATING_LABELS:
+        flash("无效的评分。", "error")
+        return redirect(url_for("anki_study"))
+
+    question = db.session.get(Question, question_id)
+    if not question:
+        flash("题目不存在。", "error")
+        return redirect(url_for("anki_start"))
+
+    card = _anki_get_or_create_card(current_user.id, question_id)
+    _anki_apply_rating(card, rating)
+
+    again_queue = session.get("anki_again_queue") or []
+    again_queue = [qid for qid in again_queue if qid != question_id]
+    if rating == "again":
+        again_queue.append(question_id)
+    session["anki_again_queue"] = again_queue
+
+    user_status = UserQuestionStatus.query.filter_by(
+        user_id=current_user.id, question_id=question_id
+    ).first()
+    if not user_status:
+        user_status = UserQuestionStatus(user_id=current_user.id, question_id=question_id)
+        db.session.add(user_status)
+    user_status.answered = True
+    user_status.last_answered_at = datetime.utcnow()
+    if rating in ("good", "easy"):
+        user_status.is_correct = True
+        wrong = WrongQuestion.query.filter_by(
+            user_id=current_user.id, question_id=question_id
+        ).first()
+        if wrong:
+            db.session.delete(wrong)
+    elif rating in ("again", "hard"):
+        user_status.is_correct = False
+        if not WrongQuestion.query.filter_by(
+            user_id=current_user.id, question_id=question_id
+        ).first():
+            db.session.add(WrongQuestion(user_id=current_user.id, question_id=question_id))
+
+    db.session.commit()
+    session.pop("anki_current_question_id", None)
+    return redirect(url_for("anki_study"))
+
+
+@app.route("/anki/done")
+@login_required
+def anki_done():
+    return render_template("anki_done.html", reason="manual")
+
+
+@app.post("/anki/end")
+@login_required
+def anki_end():
+    session.pop("anki_category_ids", None)
+    session.pop("anki_include_correct", None)
+    session.pop("anki_again_queue", None)
+    session.pop("anki_current_question_id", None)
+    flash("已结束本次 Anki 刷题。", "success")
+    return redirect(url_for("anki_start"))
 
 
 @app.template_filter("render_markdown")
