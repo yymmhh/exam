@@ -2,18 +2,45 @@
 {% block title %}Anki 刷题中{% endblock %}
 {% block content %}
 <style>
+.anki-stats-panel {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.anki-stats-panel h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #374151;
+}
 .anki-stats {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 16px;
-  font-size: 14px;
+  gap: 8px;
+  font-size: 13px;
   color: #6b7280;
 }
 .anki-stats span {
-  background: #f3f4f6;
-  padding: 6px 12px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  padding: 5px 10px;
   border-radius: 6px;
+}
+.anki-stats span strong { color: #111827; }
+.anki-stats-session span { background: #ecfdf5; border-color: #a7f3d0; }
+.anki-stats-link {
+  font-size: 13px;
+  color: #0f766e;
+  text-decoration: none;
+  margin-left: auto;
+}
+.anki-stats-link:hover { text-decoration: underline; }
+.anki-stats-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 .anki-card-area {
   min-height: 200px;
@@ -89,12 +116,32 @@
   </form>
 </div>
 
-<div class="anki-stats">
-  <span>题库内 {{ stats.total }} 题</span>
-  <span>待复习 {{ stats.due }} 题</span>
-  <span>新卡片 {{ stats.new }} 题</span>
-  {% if again_count > 0 %}
-  <span style="background:#fee2e2; color:#991b1b;">本轮待重刷 {{ again_count }} 题</span>
+<div class="anki-stats-panel">
+  <div class="anki-stats-header">
+    <h4 style="margin:0;">📊 刷题统计</h4>
+    <a href="{{ url_for('anki_stats') }}" class="anki-stats-link">查看详情 →</a>
+  </div>
+  <div class="anki-stats" style="margin-bottom:10px;">
+    <span>题库 <strong>{{ stats.total }}</strong></span>
+    <span>待复习 <strong>{{ stats.due }}</strong></span>
+    <span>新题 <strong>{{ stats.new }}</strong></span>
+    <span>学习中 <strong>{{ stats.learning }}</strong></span>
+    <span>已排期 <strong>{{ stats.scheduled }}</strong></span>
+    <span>已掌握 <strong>{{ stats.mature }}</strong></span>
+    <span>已学习 <strong>{{ stats.studied }}</strong></span>
+    {% if again_count > 0 %}
+    <span style="background:#fee2e2; border-color:#fecaca; color:#991b1b;">本轮待重刷 <strong>{{ again_count }}</strong></span>
+    {% endif %}
+  </div>
+  {% if session_stats and session_stats.reviewed > 0 %}
+  <h4 style="margin:10px 0 8px; font-size:13px; color:#374151;">本轮进度</h4>
+  <div class="anki-stats anki-stats-session">
+    <span>已复习 <strong>{{ session_stats.reviewed }}</strong></span>
+    <span>重来 <strong>{{ session_stats.again }}</strong></span>
+    <span>困难 <strong>{{ session_stats.hard }}</strong></span>
+    <span>良好 <strong>{{ session_stats.good }}</strong></span>
+    <span>简单 <strong>{{ session_stats.easy }}</strong></span>
+  </div>
   {% endif %}
 </div>
 

@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Anki 刷题统计{% endblock %}
+{% block content %}
+<style>
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.stat-card {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 16px;
+  text-align: center;
+}
+.stat-card .num {
+  font-size: 28px;
+  font-weight: 700;
+  color: #0f766e;
+  line-height: 1.2;
+}
+.stat-card .label {
+  font-size: 13px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+.stat-card.session { background: #ecfdf5; border-color: #a7f3d0; }
+.stat-card.session .num { color: #047857; }
+</style>
+
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+  <h2 style="margin:0;">📊 Anki 刷题统计</h2>
+  {% if in_session %}
+  <a href="{{ url_for('anki_study') }}" class="btn-light" style="text-decoration:none; padding:8px 16px;">返回刷题</a>
+  {% else %}
+  <a href="{{ url_for('anki_start') }}" class="btn-light" style="text-decoration:none; padding:8px 16px;">返回设置</a>
+  {% endif %}
+</div>
+
+{% if category_names %}
+<p class="muted">统计范围：{{ category_names|join('、') }}</p>
+{% endif %}
+
+<div class="card">
+  <h3 style="margin-top:0;">题库进度</h3>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="num">{{ stats.total }}</div>
+      <div class="label">题库总数</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.due }}</div>
+      <div class="label">待复习</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.new }}</div>
+      <div class="label">未学习</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.learning }}</div>
+      <div class="label">学习中</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.scheduled }}</div>
+      <div class="label">已排期</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.mature }}</div>
+      <div class="label">已掌握（≥21天）</div>
+    </div>
+    <div class="stat-card">
+      <div class="num">{{ stats.studied }}</div>
+      <div class="label">已学习过</div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:13px; margin-bottom:0;">
+    「待复习」= 到期需复习；「学习中」= 刚学尚未毕业；「已排期」= 未到期的复习卡片；「已掌握」= 间隔 ≥21 天。
+  </p>
+</div>
+
+{% if session_stats %}
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">本轮刷题进度</h3>
+  <div class="stats-grid">
+    <div class="stat-card session">
+      <div class="num">{{ session_stats.reviewed }}</div>
+      <div class="label">已复习</div>
+    </div>
+    <div class="stat-card session">
+      <div class="num">{{ session_stats.again }}</div>
+      <div class="label">重来</div>
+    </div>
+    <div class="stat-card session">
+      <div class="num">{{ session_stats.hard }}</div>
+      <div class="label">困难</div>
+    </div>
+    <div class="stat-card session">
+      <div class="num">{{ session_stats.good }}</div>
+      <div class="label">良好</div>
+    </div>
+    <div class="stat-card session">
+      <div class="num">{{ session_stats.easy }}</div>
+      <div class="label">简单</div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

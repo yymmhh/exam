@@ -7,7 +7,13 @@
   <p class="muted">当前没有到期的卡片，也没有新卡片需要学习。</p>
   {% if stats %}
   <p style="margin-top:16px;">
-    题库共 {{ stats.total }} 题，其中 {{ stats.due }} 题待复习，{{ stats.new }} 题未学习。
+    题库共 {{ stats.total }} 题，待复习 {{ stats.due }}，未学习 {{ stats.new }}，已掌握 {{ stats.mature }}。
+  </p>
+  {% endif %}
+  {% if session_stats and session_stats.reviewed > 0 %}
+  <p style="margin-top:12px;">
+    本轮共复习 <strong>{{ session_stats.reviewed }}</strong> 题
+    （重来 {{ session_stats.again }} / 困难 {{ session_stats.hard }} / 良好 {{ session_stats.good }} / 简单 {{ session_stats.easy }}）
   </p>
   {% endif %}
   <p class="muted" style="font-size:14px;">稍后再来，或勾选「包含已答对题目」继续巩固。</p>

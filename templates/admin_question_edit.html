@@ -121,7 +121,7 @@
   
   <p>
     <label style="display:block; margin-bottom:6px;"><strong>题干：</strong></label>
-    <textarea id="stem" name="stem" class="rich-editor" required>{{ question.stem }}</textarea>
+    <textarea id="stem" name="stem" class="rich-editor" required>{{ question.stem if question else '' }}</textarea>
     
     <!-- 题干图片上传 -->
     <div class="image-upload-container" id="stem-upload" 
@@ -139,12 +139,12 @@
   
   <p>
     <label style="display:block; margin-bottom:6px;"><strong>答案：</strong></label>
-    <input name="answer" value="{{ question.correct_answer }}" style="width:100%;" required>
+    <input name="answer" value="{{ question.correct_answer if question else '' }}" style="width:100%;" required>
   </p>
   
   <p>
     <label style="display:block; margin-bottom:6px;"><strong>解析：</strong></label>
-    <textarea id="explanation" name="explanation" class="rich-editor">{{ question.explanation or '' }}</textarea>
+    <textarea id="explanation" name="explanation" class="rich-editor">{{ (question.explanation or '') if question else '' }}</textarea>
     
     <!-- 解析图片上传 -->
     <div class="image-upload-container" id="explanation-upload" 
@@ -158,6 +158,12 @@
       
       <div class="uploaded-images" id="explanation-images"></div>
     </div>
+  </p>
+
+  <p>
+    <label style="display:block; margin-bottom:6px;"><strong>AI 解析：</strong></label>
+    <textarea id="ai_explanation" name="ai_explanation" class="rich-editor" style="min-height:160px;">{{ (question.ai_explanation or '') if question else '' }}</textarea>
+    <span style="font-size:13px; color:#6b7280;">支持 Markdown 格式，刷题时会以富文本展示</span>
   </p>
 
   <div id="options-section">

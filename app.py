@@ -306,6 +306,7 @@ def admin_add_question():
     stem = request.form.get("stem")
     answer = request.form.get("answer")
     explanation = request.form.get("explanation")
+    ai_explanation = request.form.get("ai_explanation", "").strip()
     
     # 验证必填字段
     if qtype not in ("single", "multiple", "blank"):
@@ -322,6 +323,7 @@ def admin_add_question():
         qtype=qtype,
         correct_answer=answer,
         explanation=explanation,
+        ai_explanation=ai_explanation,
         category_id=category_id
     )
     db.session.add(question)
@@ -1195,6 +1197,7 @@ def admin_question_edit(question_id):
         stem = request.form.get("stem", "").strip()
         answer = request.form.get("answer", "").strip()
         explanation = request.form.get("explanation", "").strip()
+        ai_explanation = request.form.get("ai_explanation", "").strip()
         
         if qtype not in ("single", "multiple", "blank") or not stem or not answer:
             flash("请完整填写题型、题干、答案。", "error")
@@ -1204,6 +1207,7 @@ def admin_question_edit(question_id):
         question.stem = stem
         question.correct_answer = answer
         question.explanation = explanation
+        question.ai_explanation = ai_explanation
 
         # 处理选项 - 支持带索引和不带索引两种格式
         if qtype in ("single", "multiple"):
@@ -2222,7 +2226,10 @@ def _anki_pick_next_question_id(user_id: int, pool_ids: list[int]) -> int | None
 
 def _anki_study_stats(user_id: int, pool_ids: list[int]) -> dict:
     if not pool_ids:
-        return {"total": 0, "due": 0, "new": 0}
+        return {
+            "total": 0, "due": 0, "new": 0, "learning": 0,
+            "scheduled": 0, "mature": 0, "studied": 0,
+        }
     now = datetime.utcnow()
     cards = {
         c.question_id: c
@@ -2232,7 +2239,42 @@ def _anki_study_stats(user_id: int, pool_ids: list[int]) -> dict:
     }
     due = sum(1 for qid in pool_ids if qid not in cards or cards[qid].next_review_at <= now)
     new = sum(1 for qid in pool_ids if qid not in cards)
-    return {"total": len(pool_ids), "due": due, "new": new}
+    learning = sum(
+        1 for qid in pool_ids
+        if qid in cards and cards[qid].repetitions == 0 and cards[qid].next_review_at > now
+    )
+    scheduled = sum(
+        1 for qid in pool_ids
+        if qid in cards and cards[qid].repetitions > 0 and cards[qid].next_review_at > now
+    )
+    mature = sum(
+        1 for qid in pool_ids
+        if qid in cards and cards[qid].interval_days >= 21
+    )
+    studied = len(cards)
+    return {
+        "total": len(pool_ids),
+        "due": due,
+        "new": new,
+        "learning": learning,
+        "scheduled": scheduled,
+        "mature": mature,
+        "studied": studied,
+    }
+
+
+def _anki_session_stats() -> dict:
+    return session.get("anki_session_stats") or {
+        "reviewed": 0, "again": 0, "hard": 0, "good": 0, "easy": 0,
+    }
+
+
+def _anki_record_session_rating(rating: str) -> None:
+    stats = _anki_session_stats()
+    stats["reviewed"] = stats.get("reviewed", 0) + 1
+    if rating in ("again", "hard", "good", "easy"):
+        stats[rating] = stats.get(rating, 0) + 1
+    session["anki_session_stats"] = stats
 
 
 @app.route("/anki/start", methods=["GET", "POST"])
@@ -2260,6 +2302,9 @@ def anki_start():
         session["anki_category_ids"] = category_ids
         session["anki_include_correct"] = include_correct
         session["anki_again_queue"] = []
+        session["anki_session_stats"] = {
+            "reviewed": 0, "again": 0, "hard": 0, "good": 0, "easy": 0,
+        }
         session.pop("anki_current_question_id", None)
         return redirect(url_for("anki_study"))
 
@@ -2290,7 +2335,12 @@ def anki_study():
 
     question_id = _anki_pick_next_question_id(current_user.id, pool_ids)
     if not question_id:
-        return render_template("anki_done.html", reason="completed", stats=_anki_study_stats(current_user.id, pool_ids))
+        return render_template(
+            "anki_done.html",
+            reason="completed",
+            stats=_anki_study_stats(current_user.id, pool_ids),
+            session_stats=_anki_session_stats(),
+        )
 
     question = db.session.get(Question, question_id)
     if not question:
@@ -2317,6 +2367,7 @@ def anki_study():
         "anki_study.html",
         question=question,
         stats=stats,
+        session_stats=_anki_session_stats(),
         again_count=again_count,
         rating_buttons=rating_buttons,
         show_answer=False,
@@ -2356,6 +2407,7 @@ def anki_reveal(question_id):
         "anki_study.html",
         question=question,
         stats=stats,
+        session_stats=_anki_session_stats(),
         again_count=again_count,
         rating_buttons=rating_buttons,
         show_answer=True,
@@ -2380,6 +2432,7 @@ def anki_rate(question_id):
 
     card = _anki_get_or_create_card(current_user.id, question_id)
     _anki_apply_rating(card, rating)
+    _anki_record_session_rating(rating)
 
     again_queue = session.get("anki_again_queue") or []
     again_queue = [qid for qid in again_queue if qid != question_id]
@@ -2414,6 +2467,35 @@ def anki_rate(question_id):
     return redirect(url_for("anki_study"))
 
 
+@app.route("/anki/stats")
+@login_required
+def anki_stats():
+    category_ids = session.get("anki_category_ids")
+    if not category_ids:
+        categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
+        category_ids = [c.id for c in categories]
+        include_correct = True
+        in_session = False
+    else:
+        include_correct = session.get("anki_include_correct", False)
+        in_session = True
+
+    pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+    stats = _anki_study_stats(current_user.id, pool_ids)
+    session_stats = _anki_session_stats() if in_session else None
+    category_names = [
+        c.name for c in Category.query.filter(Category.id.in_(category_ids)).all()
+    ]
+
+    return render_template(
+        "anki_stats.html",
+        stats=stats,
+        session_stats=session_stats,
+        category_names=category_names,
+        in_session=in_session,
+    )
+
+
 @app.route("/anki/done")
 @login_required
 def anki_done():
@@ -2423,12 +2505,18 @@ def anki_done():
 @app.post("/anki/end")
 @login_required
 def anki_end():
+    session_stats = _anki_session_stats()
     session.pop("anki_category_ids", None)
     session.pop("anki_include_correct", None)
     session.pop("anki_again_queue", None)
     session.pop("anki_current_question_id", None)
+    session.pop("anki_session_stats", None)
     flash("已结束本次 Anki 刷题。", "success")
-    return redirect(url_for("anki_start"))
+    return render_template(
+        "anki_done.html",
+        reason="manual",
+        session_stats=session_stats,
+    )
 
 
 @app.template_filter("render_markdown")
