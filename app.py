@@ -2194,11 +2194,6 @@ def _anki_pick_next_question_id(user_id: int, pool_ids: list[int]) -> int | None
     if not pool_ids:
         return None
 
-    again_queue = session.get("anki_again_queue") or []
-    for qid in again_queue:
-        if qid in pool_ids:
-            return qid
-
     now = datetime.utcnow()
     cards = {
         c.question_id: c
@@ -2206,6 +2201,14 @@ def _anki_pick_next_question_id(user_id: int, pool_ids: list[int]) -> int | None
             AnkiCard.user_id == user_id, AnkiCard.question_id.in_(pool_ids)
         ).all()
     }
+
+    again_queue = session.get("anki_again_queue") or []
+    for qid in again_queue:
+        if qid not in pool_ids:
+            continue
+        if qid in cards and cards[qid].next_review_at > now:
+            continue
+        return qid
 
     due_ids = [qid for qid in pool_ids if qid not in cards or cards[qid].next_review_at <= now]
     new_ids = [qid for qid in pool_ids if qid not in cards]
