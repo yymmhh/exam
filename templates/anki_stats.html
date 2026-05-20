@@ -28,6 +28,36 @@
 }
 .stat-card.session { background: #ecfdf5; border-color: #a7f3d0; }
 .stat-card.session .num { color: #047857; }
+.stat-card.today { background: #eff6ff; border-color: #bfdbfe; }
+.stat-card.today .num { color: #1d4ed8; }
+.stat-card.rate-again .num { color: #dc2626; }
+.stat-card.rate-hard .num { color: #d97706; }
+.stat-card.rate-good .num { color: #2563eb; }
+.stat-card.rate-easy .num { color: #059669; }
+.chart-wrap {
+  position: relative;
+  height: 320px;
+  margin-top: 12px;
+}
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin-top: 12px;
+  font-size: 13px;
+  color: #4b5563;
+}
+.chart-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-legend i {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
 </style>
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
@@ -40,10 +70,50 @@
 </div>
 
 {% if category_names %}
-<p class="muted">统计范围：{{ category_names|join('、') }}</p>
+<p class="muted">题库进度范围：{{ category_names|join('、') }}</p>
 {% endif %}
 
 <div class="card">
+  <h3 style="margin-top:0;">今日刷题（北京时间）</h3>
+  <div class="stats-grid">
+    <div class="stat-card today">
+      <div class="num">{{ activity_stats.today.reviewed }}</div>
+      <div class="label">今日已刷</div>
+    </div>
+    <div class="stat-card rate-again">
+      <div class="num">{{ activity_stats.today.again }}</div>
+      <div class="label">{{ rating_labels.again }}</div>
+    </div>
+    <div class="stat-card rate-hard">
+      <div class="num">{{ activity_stats.today.hard }}</div>
+      <div class="label">{{ rating_labels.hard }}</div>
+    </div>
+    <div class="stat-card rate-good">
+      <div class="num">{{ activity_stats.today.good }}</div>
+      <div class="label">{{ rating_labels.good }}</div>
+    </div>
+    <div class="stat-card rate-easy">
+      <div class="num">{{ activity_stats.today.easy }}</div>
+      <div class="label">{{ rating_labels.easy }}</div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:13px; margin-bottom:0;">按每次评分计 1 道；同一题多次评分会分别计入。</p>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">近 7 天刷题趋势</h3>
+  <div class="chart-wrap">
+    <canvas id="ankiActivityChart"></canvas>
+  </div>
+  <div class="chart-legend">
+    <span><i style="background:#dc2626;"></i>{{ rating_labels.again }}</span>
+    <span><i style="background:#d97706;"></i>{{ rating_labels.hard }}</span>
+    <span><i style="background:#2563eb;"></i>{{ rating_labels.good }}</span>
+    <span><i style="background:#059669;"></i>{{ rating_labels.easy }}</span>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
   <h3 style="margin-top:0;">题库进度</h3>
   <div class="stats-grid">
     <div class="stat-card">
@@ -90,21 +160,84 @@
     </div>
     <div class="stat-card session">
       <div class="num">{{ session_stats.again }}</div>
-      <div class="label">重来</div>
+      <div class="label">{{ rating_labels.again }}</div>
     </div>
     <div class="stat-card session">
       <div class="num">{{ session_stats.hard }}</div>
-      <div class="label">困难</div>
+      <div class="label">{{ rating_labels.hard }}</div>
     </div>
     <div class="stat-card session">
       <div class="num">{{ session_stats.good }}</div>
-      <div class="label">良好</div>
+      <div class="label">{{ rating_labels.good }}</div>
     </div>
     <div class="stat-card session">
       <div class="num">{{ session_stats.easy }}</div>
-      <div class="label">简单</div>
+      <div class="label">{{ rating_labels.easy }}</div>
     </div>
   </div>
 </div>
 {% endif %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const daily = {{ activity_stats.daily | tojson }};
+  const labels = daily.map(d => d.label);
+  const keys = ['again', 'hard', 'good', 'easy'];
+  const colors = {
+    again: '#dc2626',
+    hard: '#d97706',
+    good: '#2563eb',
+    easy: '#059669',
+  };
+  const names = {
+    again: {{ rating_labels.again | tojson }},
+    hard: {{ rating_labels.hard | tojson }},
+    good: {{ rating_labels.good | tojson }},
+    easy: {{ rating_labels.easy | tojson }},
+  };
+  const ctx = document.getElementById('ankiActivityChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: keys.map(key => ({
+        label: names[key],
+        data: daily.map(d => d[key]),
+        backgroundColor: colors[key],
+        borderRadius: 4,
+        stack: 'reviews',
+      })),
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            footer: (items) => {
+              const total = items.reduce((s, i) => s + (i.parsed.y || 0), 0);
+              return '合计：' + total + ' 道';
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          stacked: true,
+          grid: { display: false },
+        },
+        y: {
+          stacked: true,
+          beginAtZero: true,
+          ticks: { stepSize: 1, precision: 0 },
+          title: { display: true, text: '刷题数（道）' },
+        },
+      },
+    },
+  });
+})();
+</script>
 {% endblock %}

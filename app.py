@@ -2,7 +2,8 @@ import json
 import random
 import re
 import html
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 import os
 import uuid
 from werkzeug.utils import secure_filename
@@ -255,6 +256,17 @@ class AnkiCard(db.Model):
     last_reviewed_at = db.Column(db.DateTime, nullable=True)
 
     __table_args__ = (db.UniqueConstraint("user_id", "question_id", name="uq_anki_card"),)
+
+    question = db.relationship("Question")
+
+
+class AnkiReviewLog(db.Model):
+    """Anki 每次评分的复习记录（用于日统计与图表）"""
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    question_id = db.Column(db.Integer, db.ForeignKey("question.id"), nullable=False)
+    rating = db.Column(db.String(10), nullable=False)
+    reviewed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     question = db.relationship("Question")
 
@@ -2085,6 +2097,11 @@ ANKI_RATING_LABELS = {
     "good": "良好",
     "easy": "简单",
 }
+ANKI_AGAIN_MINUTES_RANGE = (5, 20)
+ANKI_GOOD_DAYS_RANGE = (1, 3)
+ANKI_EASY_DAYS_RANGE = (4, 8)
+ANKI_STATS_TZ = ZoneInfo("Asia/Shanghai")
+ANKI_RATING_CHART_KEYS = ("again", "hard", "good", "easy")
 
 
 def _anki_get_or_create_card(user_id: int, question_id: int) -> AnkiCard:
@@ -2117,25 +2134,47 @@ def _anki_format_interval(days: float) -> str:
     return f"{years:.1f} 年".replace(".0", "")
 
 
+def _anki_again_interval_minutes() -> int:
+    return random.randint(*ANKI_AGAIN_MINUTES_RANGE)
+
+
+def _anki_good_interval_days() -> float:
+    return float(random.randint(*ANKI_GOOD_DAYS_RANGE))
+
+
+def _anki_easy_interval_days() -> float:
+    return float(random.randint(*ANKI_EASY_DAYS_RANGE))
+
+
+def _anki_rating_interval_hint(rating: str, preview_days: float) -> str:
+    if rating == "again":
+        lo, hi = ANKI_AGAIN_MINUTES_RANGE
+        return f"{lo}-{hi} 分钟"
+    if rating == "good":
+        lo, hi = ANKI_GOOD_DAYS_RANGE
+        return f"{lo}-{hi} 天"
+    if rating == "easy":
+        lo, hi = ANKI_EASY_DAYS_RANGE
+        return f"{lo}-{hi} 天"
+    return _anki_format_interval(preview_days)
+
+
 def _anki_preview_interval(card, rating: str) -> float:
     ease = card.ease if card else 2.5
     reps = card.repetitions if card else 0
     interval = card.interval_days if card else 0.0
 
     if rating == "again":
-        return 1 / 1440
+        avg_minutes = sum(ANKI_AGAIN_MINUTES_RANGE) / 2
+        return avg_minutes / (24 * 60)
     if rating == "hard":
         if reps == 0:
             return 1.0
         return max(1.0, interval * 1.2)
     if rating == "good":
-        if reps == 0:
-            return 1.0
-        return max(1.0, interval * ease)
+        return sum(ANKI_GOOD_DAYS_RANGE) / 2
     if rating == "easy":
-        if reps == 0:
-            return 4.0
-        return max(1.0, interval * ease * 1.3)
+        return sum(ANKI_EASY_DAYS_RANGE) / 2
     return 1.0
 
 
@@ -2145,7 +2184,7 @@ def _anki_apply_rating(card: AnkiCard, rating: str) -> None:
         card.interval_days = 0.0
         card.repetitions = 0
         card.ease = max(1.3, card.ease - 0.2)
-        card.next_review_at = now + timedelta(minutes=1)
+        card.next_review_at = now + timedelta(minutes=_anki_again_interval_minutes())
     elif rating == "hard":
         if card.repetitions == 0:
             card.interval_days = 1.0
@@ -2155,17 +2194,11 @@ def _anki_apply_rating(card: AnkiCard, rating: str) -> None:
         card.ease = max(1.3, card.ease - 0.15)
         card.next_review_at = now + timedelta(days=card.interval_days)
     elif rating == "good":
-        if card.repetitions == 0:
-            card.interval_days = 1.0
-        else:
-            card.interval_days = max(1.0, card.interval_days * card.ease)
+        card.interval_days = _anki_good_interval_days()
         card.repetitions += 1
         card.next_review_at = now + timedelta(days=card.interval_days)
     elif rating == "easy":
-        if card.repetitions == 0:
-            card.interval_days = 4.0
-        else:
-            card.interval_days = max(1.0, card.interval_days * card.ease * 1.3)
+        card.interval_days = _anki_easy_interval_days()
         card.repetitions += 1
         card.ease = min(3.0, card.ease + 0.15)
         card.next_review_at = now + timedelta(days=card.interval_days)
@@ -2280,6 +2313,83 @@ def _anki_record_session_rating(rating: str) -> None:
     session["anki_session_stats"] = stats
 
 
+def _anki_empty_rating_counts() -> dict:
+    return {"reviewed": 0, "again": 0, "hard": 0, "good": 0, "easy": 0}
+
+
+def _anki_local_today() -> date:
+    return datetime.now(ANKI_STATS_TZ).date()
+
+
+def _anki_utc_naive_range_for_local_dates(start: date, end_exclusive: date) -> tuple[datetime, datetime]:
+    start_local = datetime.combine(start, datetime.min.time(), tzinfo=ANKI_STATS_TZ)
+    end_local = datetime.combine(end_exclusive, datetime.min.time(), tzinfo=ANKI_STATS_TZ)
+    start_utc = start_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    end_utc = end_local.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+    return start_utc, end_utc
+
+
+def _anki_local_date_from_utc_naive(dt: datetime) -> date:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(ANKI_STATS_TZ).date()
+
+
+def _anki_chart_day_label(d: date, today: date) -> str:
+    if d == today:
+        return "今天"
+    if d == today - timedelta(days=1):
+        return "昨天"
+    return f"{d.month}/{d.day}"
+
+
+def _anki_log_review(user_id: int, question_id: int, rating: str) -> None:
+    db.session.add(
+        AnkiReviewLog(
+            user_id=user_id,
+            question_id=question_id,
+            rating=rating,
+            reviewed_at=datetime.utcnow(),
+        )
+    )
+
+
+def _anki_review_activity_stats(user_id: int, days: int = 7) -> dict:
+    today = _anki_local_today()
+    start_date = today - timedelta(days=days - 1)
+    start_utc, end_utc = _anki_utc_naive_range_for_local_dates(start_date, today + timedelta(days=1))
+
+    logs = AnkiReviewLog.query.filter(
+        AnkiReviewLog.user_id == user_id,
+        AnkiReviewLog.reviewed_at >= start_utc,
+        AnkiReviewLog.reviewed_at < end_utc,
+    ).all()
+
+    daily = []
+    buckets: dict[date, dict] = {}
+    for i in range(days):
+        d = start_date + timedelta(days=i)
+        buckets[d] = {
+            "date": d.isoformat(),
+            "label": _anki_chart_day_label(d, today),
+            **_anki_empty_rating_counts(),
+        }
+
+    for log in logs:
+        d = _anki_local_date_from_utc_naive(log.reviewed_at)
+        if d not in buckets:
+            continue
+        buckets[d]["reviewed"] += 1
+        if log.rating in ANKI_RATING_CHART_KEYS:
+            buckets[d][log.rating] += 1
+
+    for i in range(days):
+        daily.append(buckets[start_date + timedelta(days=i)])
+
+    today_stats = buckets.get(today, {**_anki_empty_rating_counts(), "date": today.isoformat(), "label": "今天"})
+    return {"today": today_stats, "daily": daily}
+
+
 @app.route("/anki/start", methods=["GET", "POST"])
 @login_required
 def anki_start():
@@ -2359,7 +2469,7 @@ def anki_study():
             {
                 "key": key,
                 "label": ANKI_RATING_LABELS[key],
-                "interval_hint": _anki_format_interval(preview_days),
+                "interval_hint": _anki_rating_interval_hint(key, preview_days),
             }
         )
 
@@ -2399,7 +2509,7 @@ def anki_reveal(question_id):
             {
                 "key": key,
                 "label": ANKI_RATING_LABELS[key],
-                "interval_hint": _anki_format_interval(preview_days),
+                "interval_hint": _anki_rating_interval_hint(key, preview_days),
             }
         )
 
@@ -2436,6 +2546,7 @@ def anki_rate(question_id):
     card = _anki_get_or_create_card(current_user.id, question_id)
     _anki_apply_rating(card, rating)
     _anki_record_session_rating(rating)
+    _anki_log_review(current_user.id, question_id, rating)
 
     again_queue = session.get("anki_again_queue") or []
     again_queue = [qid for qid in again_queue if qid != question_id]
@@ -2486,6 +2597,7 @@ def anki_stats():
     pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
     stats = _anki_study_stats(current_user.id, pool_ids)
     session_stats = _anki_session_stats() if in_session else None
+    activity_stats = _anki_review_activity_stats(current_user.id)
     category_names = [
         c.name for c in Category.query.filter(Category.id.in_(category_ids)).all()
     ]
@@ -2494,6 +2606,8 @@ def anki_stats():
         "anki_stats.html",
         stats=stats,
         session_stats=session_stats,
+        activity_stats=activity_stats,
+        rating_labels=ANKI_RATING_LABELS,
         category_names=category_names,
         in_session=in_session,
     )
