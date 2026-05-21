@@ -7,9 +7,19 @@
     <h3>{{ c.name }}</h3>
     <p>{{ c.description }}</p>
     {% set p = progress.get(c.id) %}
+    {% set s = practice_stats.get(c.id) %}
     <p class="muted">
       进度：{{ p.done if p else 0 }} / {{ p.total if p else 0 }} 已作答
     </p>
+    {% if s and s.total > 0 %}
+    <div class="category-stats" style="display:flex; flex-wrap:wrap; gap:6px; margin:10px 0 12px; font-size:12px; color:#6b7280;">
+      <span style="background:#f8fafc; border:1px solid #e5e7eb; padding:3px 8px; border-radius:4px;">答对 <strong>{{ s.correct }}</strong></span>
+      <span style="background:#f8fafc; border:1px solid #e5e7eb; padding:3px 8px; border-radius:4px;">答错 <strong>{{ s.wrong }}</strong></span>
+      <span style="background:#f8fafc; border:1px solid #e5e7eb; padding:3px 8px; border-radius:4px;">未答 <strong>{{ s.unanswered }}</strong></span>
+      <span style="background:#f8fafc; border:1px solid #e5e7eb; padding:3px 8px; border-radius:4px;">未选提交 <strong>{{ s.empty_submit }}</strong></span>
+      {% if s.pending > 0 %}<span style="background:#fffbeb; border:1px solid #fde68a; padding:3px 8px; border-radius:4px;">待确认 <strong>{{ s.pending }}</strong></span>{% endif %}
+    </div>
+    {% endif %}
     <a href="{{ url_for('practice_question', category_id=c.id) }}">进入练习</a>
   </div>
 {% else %}

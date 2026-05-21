@@ -1,8 +1,53 @@
 {% extends "base.html" %}
 {% block title %}练习 - {{ category.name }}{% endblock %}
 {% block content %}
+<style>
+.practice-stats-panel {
+  background: #f8fafc;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.practice-stats-panel h4 { margin: 0 0 10px; font-size: 14px; color: #374151; }
+.practice-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 13px;
+  color: #6b7280;
+}
+.practice-stats span {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  padding: 5px 10px;
+  border-radius: 6px;
+}
+.practice-stats span strong { color: #111827; }
+.practice-stats .stat-correct strong { color: #146c2e; }
+.practice-stats .stat-wrong strong { color: #c00; }
+.practice-stats .stat-unanswered strong { color: #495057; }
+.practice-stats .stat-empty strong { color: #856404; }
+.practice-stats .stat-pending strong { color: #b45309; }
+</style>
+
 <h2>{{ category.name }} 练习</h2>
 <p>第 {{ current_index }} / {{ total }} 题</p>
+
+<div class="practice-stats-panel" id="practiceStatsPanel"
+     data-stats-url="{{ url_for('practice_category_stats', category_id=category.id) }}">
+  <h4>📊 本题库练习统计</h4>
+  <div class="practice-stats" id="practiceStatsBar">
+    <span class="stat-correct">答对 <strong data-stat="correct">{{ practice_stats.correct }}</strong></span>
+    <span class="stat-wrong">答错 <strong data-stat="wrong">{{ practice_stats.wrong }}</strong></span>
+    <span class="stat-unanswered">未答 <strong data-stat="unanswered">{{ practice_stats.unanswered }}</strong></span>
+    <span class="stat-empty">未选提交 <strong data-stat="empty_submit">{{ practice_stats.empty_submit }}</strong></span>
+    <span class="stat-pending" id="practiceStatPending"{% if practice_stats.pending == 0 %} style="display:none;"{% endif %}>
+      待确认 <strong data-stat="pending">{{ practice_stats.pending }}</strong>
+    </span>
+    <span>共 <strong data-stat="total">{{ practice_stats.total }}</strong> 题</span>
+  </div>
+</div>
 
 <!-- 答题卡按钮 -->
 <button type="button" onclick="toggleAnswerSheet()" style="margin-bottom:12px; background:#6c757d; border-color:#6c757d;">
@@ -33,6 +78,7 @@
       🟢 绿色：已作答且正确 | 
       🔴 红色：已作答但错误 | 
       🟡 黄色：待确认（填空题） | 
+      灰色：未作答 |
       <strong>粗体蓝框</strong>：当前题
     </p>
   </div>
@@ -154,5 +200,32 @@ document.addEventListener('keydown', function(e) {
     }
   }
 });
+
+function applyPracticeStats(data) {
+  var panel = document.getElementById('practiceStatsPanel');
+  if (!panel || !data) return;
+  panel.querySelectorAll('[data-stat]').forEach(function(el) {
+    var key = el.getAttribute('data-stat');
+    if (data[key] !== undefined) el.textContent = data[key];
+  });
+  var pendingEl = document.getElementById('practiceStatPending');
+  if (pendingEl) pendingEl.style.display = (data.pending > 0) ? '' : 'none';
+}
+
+function refreshPracticeStats() {
+  var panel = document.getElementById('practiceStatsPanel');
+  if (!panel) return;
+  var url = panel.getAttribute('data-stats-url');
+  if (!url) return;
+  fetch(url, { headers: { 'Accept': 'application/json' } })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(applyPracticeStats)
+    .catch(function() {});
+}
+
+document.addEventListener('visibilitychange', function() {
+  if (document.visibilityState === 'visible') refreshPracticeStats();
+});
+window.addEventListener('focus', refreshPracticeStats);
 </script>
 {% endblock %}

@@ -270,6 +270,15 @@
       background-color: #e1e4e8;
       border: 0;
     }
+    /* KaTeX 公式 */
+    .markdown-body .katex-display {
+      margin: 1em 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    .markdown-body .katex {
+      font-size: 1.05em;
+    }
     /* 随机刷题样式 */
     .answer-sheet-btn {
       margin-bottom: 12px;
@@ -441,6 +450,7 @@
       background: #c82333;
     }
   </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
 </head>
 <body>
   <header class="topbar">
@@ -474,5 +484,37 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+  <script>
+  (function() {
+    var MATH_DELIMITERS = [
+      { left: '$$', right: '$$', display: true },
+      { left: '\\[', right: '\\]', display: true },
+      { left: '$', right: '$', display: false },
+      { left: '\\(', right: '\\)', display: false }
+    ];
+    function renderMarkdownMath(root) {
+      if (typeof renderMathInElement !== 'function') return;
+      var nodes = (root || document).querySelectorAll('.markdown-body');
+      nodes.forEach(function(el) {
+        if (el.getAttribute('data-math-rendered') === '1') return;
+        try {
+          renderMathInElement(el, {
+            delimiters: MATH_DELIMITERS,
+            throwOnError: false,
+            strict: false,
+            trust: false
+          });
+          el.setAttribute('data-math-rendered', '1');
+        } catch (e) { /* ignore */ }
+      });
+    }
+    window.renderMarkdownMath = renderMarkdownMath;
+    document.addEventListener('DOMContentLoaded', function() {
+      renderMarkdownMath(document);
+    });
+  })();
+  </script>
 </body>
 </html>

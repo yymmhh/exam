@@ -395,6 +395,77 @@ def render_stem(stem: str) -> str:
     # 标题允许直接渲染 HTML（如 <img>、<span> 等）
     return Markup(s)
 
+MATH_PLACEHOLDER = "⟦MATH:{idx}⟧"
+
+
+def _stash_math_segment(blocks: list[str], raw: str) -> str:
+    blocks.append(raw)
+    return f"\n\n{MATH_PLACEHOLDER.format(idx=len(blocks) - 1)}\n\n"
+
+
+def _extract_math_segments(text: str) -> tuple[str, list[str]]:
+    """在 Markdown 解析前抽出公式，避免 _、* 等破坏 LaTeX（Gemini 常用 $...$ / $$...$$）。"""
+    blocks: list[str] = []
+
+    def latex_fence(match: re.Match) -> str:
+        body = match.group(1).strip()
+        if not body:
+            return match.group(0)
+        wrapped = f"$$\n{body}\n$$" if "\n" in body else f"${body}$"
+        return _stash_math_segment(blocks, wrapped)
+
+    text = re.sub(
+        r"```(?:latex|math)\s*\n([\s\S]*?)```",
+        latex_fence,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\$\$([\s\S]+?)\$\$",
+        lambda m: _stash_math_segment(blocks, m.group(0)),
+        text,
+    )
+    text = re.sub(
+        r"\\\[([\s\S]+?)\\\]",
+        lambda m: _stash_math_segment(blocks, m.group(0)),
+        text,
+    )
+    text = re.sub(
+        r"\\\((.+?)\\\)",
+        lambda m: _stash_math_segment(blocks, m.group(0)),
+        text,
+        flags=re.DOTALL,
+    )
+    text = re.sub(
+        r"(?<!\$)\$(?!\$)((?:\\.|[^$\n])+?)\$(?!\$)",
+        lambda m: _stash_math_segment(blocks, m.group(0)),
+        text,
+    )
+    return text, blocks
+
+
+def _restore_math_segments(html: str, blocks: list[str]) -> str:
+    for idx, block in enumerate(blocks):
+        token = MATH_PLACEHOLDER.format(idx=idx)
+        html = html.replace(f"<p>{token}</p>", block)
+        html = html.replace(token, block)
+    return html
+
+
+def _markdown_to_html(text: str) -> str:
+    if not text:
+        return ""
+    text, math_blocks = _extract_math_segments(text)
+    html_content = markdown.markdown(
+        text,
+        extensions=["extra", "codehilite", "toc", "nl2br"],
+        output_format="html5",
+    )
+    if math_blocks:
+        html_content = _restore_math_segments(html_content, math_blocks)
+    return html_content
+
+
 @app.template_filter("render_markdown_with_blanks")
 def render_markdown_with_blanks(stem: str) -> Markup:
     """
@@ -406,14 +477,7 @@ def render_markdown_with_blanks(stem: str) -> Markup:
     # 先替换 {blank} 占位符
     s = stem.replace("{blank}", "**(_____)**")  # 用粗体显示空白
     
-    # 然后渲染 Markdown
-    html_content = markdown.markdown(
-        s,
-        extensions=['extra', 'codehilite', 'toc', 'nl2br'],
-        output_format='html5'
-    )
-    
-    return Markup(html_content)
+    return Markup(_markdown_to_html(s))
 
 @app.template_filter("render_explanation")
 def render_explanation(explanation: str) -> Markup:
@@ -514,6 +578,85 @@ def check_answer(question: Question, user_answer: str) -> bool:
     return question.correct_answer.strip().upper() == user_answer.strip().upper()
 
 
+def _empty_practice_stats() -> dict:
+    return {
+        "total": 0,
+        "correct": 0,
+        "wrong": 0,
+        "unanswered": 0,
+        "empty_submit": 0,
+        "pending": 0,
+    }
+
+
+def _classify_practice_status(status: UserQuestionStatus | None) -> str | None:
+    """将单题作答状态归类：correct / wrong / empty_submit / pending / unanswered。"""
+    if not status or not status.answered:
+        return "unanswered"
+    if not (status.answer or "").strip():
+        return "empty_submit"
+    if status.is_correct is True:
+        return "correct"
+    if status.is_correct is False:
+        return "wrong"
+    return "pending"
+
+
+def _practice_category_stats(user_id: int, category_id: int) -> dict:
+    """按题库实时统计练习情况（不缓存，直接查库）。"""
+    total = Question.query.filter_by(category_id=category_id).count()
+    stats = _empty_practice_stats()
+    stats["total"] = total
+    if total == 0:
+        return stats
+
+    statuses = (
+        UserQuestionStatus.query.join(Question, Question.id == UserQuestionStatus.question_id)
+        .filter(UserQuestionStatus.user_id == user_id, Question.category_id == category_id)
+        .all()
+    )
+    answered_question_ids: set[int] = set()
+    for s in statuses:
+        kind = _classify_practice_status(s)
+        if kind == "unanswered":
+            continue
+        answered_question_ids.add(s.question_id)
+        stats[kind] += 1
+    stats["unanswered"] = total - len(answered_question_ids)
+    return stats
+
+
+def _practice_categories_stats_batch(user_id: int, category_ids: list[int]) -> dict[int, dict]:
+    if not category_ids:
+        return {}
+
+    totals_rows = (
+        db.session.query(Question.category_id, func.count(Question.id))
+        .filter(Question.category_id.in_(category_ids))
+        .group_by(Question.category_id)
+        .all()
+    )
+    totals = {cid: cnt for cid, cnt in totals_rows}
+    stats_map = {cid: {**_empty_practice_stats(), "total": totals.get(cid, 0)} for cid in category_ids}
+
+    status_rows = (
+        db.session.query(Question.category_id, UserQuestionStatus)
+        .join(Question, Question.id == UserQuestionStatus.question_id)
+        .filter(UserQuestionStatus.user_id == user_id, Question.category_id.in_(category_ids))
+        .all()
+    )
+    answered_by_category: dict[int, set[int]] = {cid: set() for cid in category_ids}
+    for cid, s in status_rows:
+        kind = _classify_practice_status(s)
+        if kind == "unanswered":
+            continue
+        answered_by_category[cid].add(s.question_id)
+        stats_map[cid][kind] += 1
+    for cid in category_ids:
+        stats_map[cid]["unanswered"] = stats_map[cid]["total"] - len(answered_by_category[cid])
+    return stats_map
+
+
 def admin_required():
     if not current_user.is_authenticated or not current_user.is_admin:
         flash("仅管理员可访问。", "error")
@@ -590,7 +733,14 @@ def practice_categories():
         total = totals.get(c.id, 0)
         progress[c.id] = {"done": done.get(c.id, 0), "total": total}
 
-    return render_template("practice_categories.html", categories=categories, progress=progress)
+    practice_stats = _practice_categories_stats_batch(current_user.id, category_ids)
+
+    return render_template(
+        "practice_categories.html",
+        categories=categories,
+        progress=progress,
+        practice_stats=practice_stats,
+    )
 
 
 @app.route("/practice/<int:category_id>")
@@ -634,6 +784,8 @@ def practice_question(category_id):
         .filter(UserQuestionStatus.question_id.in_([q.id for q in questions]))
         .all()
     }
+    practice_stats = _practice_category_stats(current_user.id, category_id)
+
     return render_template(
         "practice_question.html",
         category=category,
@@ -644,7 +796,17 @@ def practice_question(category_id):
         total=len(questions),
         status=status,
         wrong=wrong,
+        practice_stats=practice_stats,
     )
+
+
+@app.get("/practice/<int:category_id>/stats")
+@login_required
+def practice_category_stats(category_id):
+    category = db.session.get(Category, category_id)
+    if not category:
+        return jsonify({"error": "题库不存在"}), 404
+    return jsonify(_practice_category_stats(current_user.id, category_id))
 
 
 @app.post("/practice/<int:category_id>/submit")
@@ -2098,8 +2260,7 @@ ANKI_RATING_LABELS = {
     "easy": "简单",
 }
 ANKI_AGAIN_MINUTES_RANGE = (5, 20)
-ANKI_GOOD_DAYS_RANGE = (1, 3)
-ANKI_EASY_DAYS_RANGE = (4, 8)
+ANKI_JITTER_DAYS_RANGE = (1, 3)
 ANKI_STATS_TZ = ZoneInfo("Asia/Shanghai")
 ANKI_RATING_CHART_KEYS = ("again", "hard", "good", "easy")
 
@@ -2138,44 +2299,53 @@ def _anki_again_interval_minutes() -> int:
     return random.randint(*ANKI_AGAIN_MINUTES_RANGE)
 
 
-def _anki_good_interval_days() -> float:
-    return float(random.randint(*ANKI_GOOD_DAYS_RANGE))
+def _anki_jitter_days() -> int:
+    return random.randint(*ANKI_JITTER_DAYS_RANGE)
 
 
-def _anki_easy_interval_days() -> float:
-    return float(random.randint(*ANKI_EASY_DAYS_RANGE))
-
-
-def _anki_rating_interval_hint(rating: str, preview_days: float) -> str:
-    if rating == "again":
-        lo, hi = ANKI_AGAIN_MINUTES_RANGE
-        return f"{lo}-{hi} 分钟"
-    if rating == "good":
-        lo, hi = ANKI_GOOD_DAYS_RANGE
-        return f"{lo}-{hi} 天"
-    if rating == "easy":
-        lo, hi = ANKI_EASY_DAYS_RANGE
-        return f"{lo}-{hi} 天"
-    return _anki_format_interval(preview_days)
-
-
-def _anki_preview_interval(card, rating: str) -> float:
+def _anki_base_interval_days(card, rating: str) -> float:
     ease = card.ease if card else 2.5
     reps = card.repetitions if card else 0
     interval = card.interval_days if card else 0.0
 
     if rating == "again":
-        avg_minutes = sum(ANKI_AGAIN_MINUTES_RANGE) / 2
-        return avg_minutes / (24 * 60)
+        return 0.0
     if rating == "hard":
         if reps == 0:
             return 1.0
         return max(1.0, interval * 1.2)
     if rating == "good":
-        return sum(ANKI_GOOD_DAYS_RANGE) / 2
+        if reps == 0:
+            return 1.0
+        return max(1.0, interval * ease)
     if rating == "easy":
-        return sum(ANKI_EASY_DAYS_RANGE) / 2
+        if reps == 0:
+            return 4.0
+        return max(1.0, interval * ease * 1.3)
     return 1.0
+
+
+def _anki_rating_interval_hint(rating: str, card) -> str:
+    if rating == "again":
+        lo, hi = ANKI_AGAIN_MINUTES_RANGE
+        return f"{lo}-{hi} 分钟"
+    if rating in ("good", "easy"):
+        base = _anki_base_interval_days(card, rating)
+        lo = base + ANKI_JITTER_DAYS_RANGE[0]
+        hi = base + ANKI_JITTER_DAYS_RANGE[1]
+        return f"约 {_anki_format_interval(lo)}-{_anki_format_interval(hi)}"
+    return _anki_format_interval(_anki_preview_interval(card, rating))
+
+
+def _anki_preview_interval(card, rating: str) -> float:
+    if rating == "again":
+        avg_minutes = sum(ANKI_AGAIN_MINUTES_RANGE) / 2
+        return avg_minutes / (24 * 60)
+    if rating in ("good", "easy"):
+        base = _anki_base_interval_days(card, rating)
+        avg_jitter = sum(ANKI_JITTER_DAYS_RANGE) / 2
+        return base + avg_jitter
+    return _anki_base_interval_days(card, rating)
 
 
 def _anki_apply_rating(card: AnkiCard, rating: str) -> None:
@@ -2194,11 +2364,13 @@ def _anki_apply_rating(card: AnkiCard, rating: str) -> None:
         card.ease = max(1.3, card.ease - 0.15)
         card.next_review_at = now + timedelta(days=card.interval_days)
     elif rating == "good":
-        card.interval_days = _anki_good_interval_days()
+        base = _anki_base_interval_days(card, "good")
+        card.interval_days = base + _anki_jitter_days()
         card.repetitions += 1
         card.next_review_at = now + timedelta(days=card.interval_days)
     elif rating == "easy":
-        card.interval_days = _anki_easy_interval_days()
+        base = _anki_base_interval_days(card, "easy")
+        card.interval_days = base + _anki_jitter_days()
         card.repetitions += 1
         card.ease = min(3.0, card.ease + 0.15)
         card.next_review_at = now + timedelta(days=card.interval_days)
@@ -2464,12 +2636,11 @@ def anki_study():
     card = AnkiCard.query.filter_by(user_id=current_user.id, question_id=question_id).first()
     rating_buttons = []
     for key in ("again", "hard", "good", "easy"):
-        preview_days = _anki_preview_interval(card, key)
         rating_buttons.append(
             {
                 "key": key,
                 "label": ANKI_RATING_LABELS[key],
-                "interval_hint": _anki_rating_interval_hint(key, preview_days),
+                "interval_hint": _anki_rating_interval_hint(key, card),
             }
         )
 
@@ -2504,12 +2675,11 @@ def anki_reveal(question_id):
     card = AnkiCard.query.filter_by(user_id=current_user.id, question_id=question_id).first()
     rating_buttons = []
     for key in ("again", "hard", "good", "easy"):
-        preview_days = _anki_preview_interval(card, key)
         rating_buttons.append(
             {
                 "key": key,
                 "label": ANKI_RATING_LABELS[key],
-                "interval_hint": _anki_rating_interval_hint(key, preview_days),
+                "interval_hint": _anki_rating_interval_hint(key, card),
             }
         )
 
@@ -2639,25 +2809,10 @@ def anki_end():
 @app.template_filter("render_markdown")
 def render_markdown(text: str) -> Markup:
     """
-    将 Markdown 文本渲染为 HTML。
-    支持常见的 Markdown 语法：标题、列表、代码块、链接、图片等。
+    将 Markdown 文本渲染为 HTML（含 LaTeX 公式，页面内由 KaTeX 渲染）。
+    支持 Gemini 常见格式：$...$、$$...$$、\\(...\\)、\\[...\\]、```latex 代码块。
     """
-    if not text:
-        return Markup("")
-    
-    # 使用 markdown 库转换为 HTML
-    html_content = markdown.markdown(
-        text,
-        extensions=[
-            'extra',           # 支持表格、定义列表等
-            'codehilite',      # 代码高亮
-            'toc',             # 目录生成
-            'nl2br',           # 换行转 <br>
-        ],
-        output_format='html5'
-    )
-    
-    return Markup(html_content)
+    return Markup(_markdown_to_html(text or ""))
 
 
 if __name__ == "__main__":
