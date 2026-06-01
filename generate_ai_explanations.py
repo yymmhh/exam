@@ -1,5 +1,8 @@
+import json
 import os
 import sys
+import urllib.error
+import urllib.request
 from dotenv import load_dotenv
 
 # 加载环境变量
@@ -9,8 +12,9 @@ load_dotenv()
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from app import app, db, Question, Choice
-import dashscope
-from dashscope import Generation
+
+TENCENT_MAAS_API_URL = "https://tokenhub.tencentmaas.com/v1/chat/completions"
+TENCENT_MAAS_MODEL = "deepseek-v4-pro-202606"
 
 
 def build_ai_prompt(question: Question) -> str:
@@ -43,46 +47,53 @@ def build_ai_prompt(question: Question) -> str:
 
 def generate_ai_explanation(question: Question, api_key: str) -> tuple:
     """为单个题目生成 AI 解析"""
-    dashscope.api_key = api_key
-    
     try:
         prompt = build_ai_prompt(question)
-        
-        print(f"  正在调用千问 API...")
-        response = Generation.call(
-            model="deepseek-v4-flash",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=2000
+        payload = {
+            "model": TENCENT_MAAS_MODEL,
+            "messages": [
+                {"role": "system", "content": "你是一位专业的教育专家，擅长为各类考试题目撰写清晰、准确的解析。"},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+            "temperature": 0.7,
+            "max_tokens": 2000,
+        }
+        body = json.dumps(payload).encode("utf-8")
+        request = urllib.request.Request(
+            TENCENT_MAAS_API_URL,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
         )
-        
-        print(f"  响应状态码：{response.status_code}")
-        
-        if response.status_code == 200:
-            # 新的 API 返回格式：直接使用 output.text
-            if hasattr(response.output, 'text') and response.output.text:
-                ai_explanation = response.output.text.strip()
-                print(f"  生成成功，内容长度：{len(ai_explanation)}")
-                return True, ai_explanation
-            
-            # 旧的 API 返回格式：使用 output.choices[0].message.content
-            if hasattr(response.output, 'choices') and response.output.choices:
-                choice = response.output.choices[0]
-                if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
-                    ai_explanation = choice.message.content.strip()
-                    print(f"  生成成功（旧格式），内容长度：{len(ai_explanation)}")
-                    return True, ai_explanation
-            
-            # 如果两种格式都没有找到内容
-            print(f"  错误：无法从响应中提取内容")
-            print(f"  完整响应：{response}")
-            return False, None
-        else:
-            print(f"  API 调用失败：状态码 {response.status_code}")
-            print(f"  错误代码：{response.code}")
-            print(f"  错误信息：{response.message}")
-            return False, None
-            
+
+        print("  正在调用腾讯云 API...")
+        with urllib.request.urlopen(request, timeout=120) as response:
+            status_code = response.status
+            response_data = json.loads(response.read().decode("utf-8"))
+
+        print(f"  响应状态码：{status_code}")
+
+        choices = response_data.get("choices") or []
+        if choices:
+            message = choices[0].get("message") or {}
+            content = message.get("content", "").strip()
+            if content:
+                print(f"  生成成功，内容长度：{len(content)}")
+                return True, content
+
+        print("  错误：无法从响应中提取内容")
+        print(f"  完整响应：{response_data}")
+        return False, None
+
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode("utf-8", errors="replace")
+        print(f"  API 调用失败：状态码 {e.code}")
+        print(f"  错误信息：{error_body}")
+        return False, None
     except Exception as e:
         print(f"  处理出错：{type(e).__name__}: {e}")
         import traceback
@@ -92,12 +103,12 @@ def generate_ai_explanation(question: Question, api_key: str) -> tuple:
 
 def main():
     """主函数"""
-    api_key = os.getenv("DASHSCOPE_API_KEY", "sk-f5606afcb1d1405abee7be97ecfca19a")
+    api_key = os.getenv("TENCENT_MAAS_API_KEY", "")
     if not api_key:
-        print("错误：请设置环境变量 DASHSCOPE_API_KEY")
+        print("错误：请设置环境变量 TENCENT_MAAS_API_KEY")
         print("使用方法：")
-        print("  1. 创建 .env 文件，添加：DASHSCOPE_API_KEY=your_api_key")
-        print("  2. 或者直接运行：set DASHSCOPE_API_KEY=your_api_key && python generate_ai_explanations.py")
+        print("  1. 创建 .env 文件，添加：TENCENT_MAAS_API_KEY=your_api_key")
+        print("  2. 或者直接运行：set TENCENT_MAAS_API_KEY=your_api_key && python generate_ai_explanations.py")
         sys.exit(1)
     
     with app.app_context():
@@ -137,7 +148,7 @@ def main():
             sys.exit(1)
         
         print(f"\n找到 {len(questions)} 道题目")
-        print(f"模型：qwen-turbo")
+        print(f"模型：{TENCENT_MAAS_MODEL}")
         print(f"预计消耗时间：约 {len(questions) * 2} 秒")
         print("\n按 Enter 键开始，或输入 q 退出...")
         

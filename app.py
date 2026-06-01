@@ -2515,15 +2515,73 @@ def _anki_chart_day_label(d: date, today: date) -> str:
     return f"{d.month}/{d.day}"
 
 
-def _anki_log_review(user_id: int, question_id: int, rating: str) -> None:
-    db.session.add(
-        AnkiReviewLog(
-            user_id=user_id,
-            question_id=question_id,
-            rating=rating,
-            reviewed_at=datetime.utcnow(),
-        )
+def _anki_log_review(user_id: int, question_id: int, rating: str) -> AnkiReviewLog:
+    log = AnkiReviewLog(
+        user_id=user_id,
+        question_id=question_id,
+        rating=rating,
+        reviewed_at=datetime.utcnow(),
     )
+    db.session.add(log)
+    db.session.flush()
+    return log
+
+
+def _anki_parse_utc_naive(iso_value: str | None) -> datetime | None:
+    if not iso_value:
+        return None
+    return datetime.fromisoformat(iso_value)
+
+
+def _anki_build_undo_state(user_id: int, question_id: int) -> dict:
+    existing_card = AnkiCard.query.filter_by(user_id=user_id, question_id=question_id).first()
+    card_snapshot = None
+    if existing_card:
+        card_snapshot = {
+            "interval_days": existing_card.interval_days,
+            "ease": existing_card.ease,
+            "repetitions": existing_card.repetitions,
+            "next_review_at": existing_card.next_review_at.isoformat() if existing_card.next_review_at else None,
+            "last_reviewed_at": existing_card.last_reviewed_at.isoformat() if existing_card.last_reviewed_at else None,
+        }
+
+    user_status = UserQuestionStatus.query.filter_by(user_id=user_id, question_id=question_id).first()
+    user_status_snapshot = None
+    if user_status:
+        user_status_snapshot = {
+            "answered": user_status.answered,
+            "is_correct": user_status.is_correct,
+            "last_answered_at": user_status.last_answered_at.isoformat() if user_status.last_answered_at else None,
+        }
+
+    return {
+        "question_id": question_id,
+        "card_was_new": existing_card is None,
+        "card_snapshot": card_snapshot,
+        "user_status_was_new": user_status is None,
+        "user_status_snapshot": user_status_snapshot,
+        "wrong_existed": WrongQuestion.query.filter_by(user_id=user_id, question_id=question_id).first() is not None,
+    }
+
+
+def _anki_undo_session_rating(rating: str) -> None:
+    stats = _anki_session_stats()
+    stats["reviewed"] = max(0, stats.get("reviewed", 0) - 1)
+    if rating in ("again", "hard", "good", "easy"):
+        stats[rating] = max(0, stats.get(rating, 0) - 1)
+    session["anki_session_stats"] = stats
+
+
+def _anki_undo_info() -> dict | None:
+    undo = session.get("anki_undo")
+    if not undo:
+        return None
+    rating = undo.get("rating", "")
+    return {
+        "question_id": undo.get("question_id"),
+        "rating": rating,
+        "rating_label": ANKI_RATING_LABELS.get(rating, rating),
+    }
 
 
 def _anki_review_activity_stats(user_id: int, days: int = 7) -> dict:
@@ -2591,6 +2649,8 @@ def anki_start():
             "reviewed": 0, "again": 0, "hard": 0, "good": 0, "easy": 0,
         }
         session.pop("anki_current_question_id", None)
+        session.pop("anki_undo", None)
+        session.pop("anki_undo_reveal_question_id", None)
         return redirect(url_for("anki_study"))
 
     category_stats = []
@@ -2616,15 +2676,24 @@ def anki_study():
     include_correct = session.get("anki_include_correct", False)
     pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
     if not pool_ids:
-        return render_template("anki_done.html", reason="empty")
+        return render_template("anki_done.html", reason="empty", can_undo=False)
 
-    question_id = _anki_pick_next_question_id(current_user.id, pool_ids)
+    reveal_qid = session.pop("anki_undo_reveal_question_id", None)
+    if reveal_qid and reveal_qid in pool_ids:
+        question_id = reveal_qid
+        show_answer = True
+    else:
+        question_id = _anki_pick_next_question_id(current_user.id, pool_ids)
+        show_answer = False
+
     if not question_id:
         return render_template(
             "anki_done.html",
             reason="completed",
             stats=_anki_study_stats(current_user.id, pool_ids),
             session_stats=_anki_session_stats(),
+            can_undo=bool(session.get("anki_undo")),
+            undo_info=_anki_undo_info(),
         )
 
     question = db.session.get(Question, question_id)
@@ -2654,7 +2723,9 @@ def anki_study():
         session_stats=_anki_session_stats(),
         again_count=again_count,
         rating_buttons=rating_buttons,
-        show_answer=False,
+        show_answer=show_answer,
+        can_undo=bool(session.get("anki_undo")),
+        undo_info=_anki_undo_info(),
     )
 
 
@@ -2694,6 +2765,8 @@ def anki_reveal(question_id):
         again_count=again_count,
         rating_buttons=rating_buttons,
         show_answer=True,
+        can_undo=bool(session.get("anki_undo")),
+        undo_info=_anki_undo_info(),
     )
 
 
@@ -2713,10 +2786,15 @@ def anki_rate(question_id):
         flash("题目不存在。", "error")
         return redirect(url_for("anki_start"))
 
+    undo_state = _anki_build_undo_state(current_user.id, question_id)
+    undo_state["rating"] = rating
+    undo_state["again_queue_before"] = list(session.get("anki_again_queue") or [])
+
     card = _anki_get_or_create_card(current_user.id, question_id)
     _anki_apply_rating(card, rating)
     _anki_record_session_rating(rating)
-    _anki_log_review(current_user.id, question_id, rating)
+    review_log = _anki_log_review(current_user.id, question_id, rating)
+    undo_state["review_log_id"] = review_log.id
 
     again_queue = session.get("anki_again_queue") or []
     again_queue = [qid for qid in again_queue if qid != question_id]
@@ -2747,7 +2825,73 @@ def anki_rate(question_id):
             db.session.add(WrongQuestion(user_id=current_user.id, question_id=question_id))
 
     db.session.commit()
+    session["anki_undo"] = undo_state
     session.pop("anki_current_question_id", None)
+    return redirect(url_for("anki_study"))
+
+
+@app.post("/anki/undo")
+@login_required
+def anki_undo():
+    undo = session.get("anki_undo")
+    if not undo:
+        flash("没有可撤销的操作。", "info")
+        return redirect(url_for("anki_study"))
+
+    category_ids = session.get("anki_category_ids")
+    if not category_ids:
+        flash("请先选择刷题设置。", "info")
+        return redirect(url_for("anki_start"))
+
+    question_id = undo["question_id"]
+    rating = undo.get("rating", "")
+
+    card = AnkiCard.query.filter_by(user_id=current_user.id, question_id=question_id).first()
+    if undo.get("card_was_new"):
+        if card:
+            db.session.delete(card)
+    elif card and undo.get("card_snapshot"):
+        snap = undo["card_snapshot"]
+        card.interval_days = snap["interval_days"]
+        card.ease = snap["ease"]
+        card.repetitions = snap["repetitions"]
+        card.next_review_at = _anki_parse_utc_naive(snap.get("next_review_at")) or datetime.utcnow()
+        card.last_reviewed_at = _anki_parse_utc_naive(snap.get("last_reviewed_at"))
+
+    review_log_id = undo.get("review_log_id")
+    if review_log_id:
+        log = db.session.get(AnkiReviewLog, review_log_id)
+        if log and log.user_id == current_user.id:
+            db.session.delete(log)
+
+    _anki_undo_session_rating(rating)
+    session["anki_again_queue"] = list(undo.get("again_queue_before") or [])
+
+    user_status = UserQuestionStatus.query.filter_by(
+        user_id=current_user.id, question_id=question_id
+    ).first()
+    if undo.get("user_status_was_new"):
+        if user_status:
+            db.session.delete(user_status)
+    elif user_status and undo.get("user_status_snapshot"):
+        snap = undo["user_status_snapshot"]
+        user_status.answered = snap["answered"]
+        user_status.is_correct = snap["is_correct"]
+        user_status.last_answered_at = _anki_parse_utc_naive(snap.get("last_answered_at"))
+
+    wrong = WrongQuestion.query.filter_by(user_id=current_user.id, question_id=question_id).first()
+    if rating in ("good", "easy"):
+        if undo.get("wrong_existed") and not wrong:
+            db.session.add(WrongQuestion(user_id=current_user.id, question_id=question_id))
+    elif rating in ("again", "hard"):
+        if not undo.get("wrong_existed") and wrong:
+            db.session.delete(wrong)
+
+    db.session.commit()
+    session.pop("anki_undo", None)
+    session["anki_current_question_id"] = question_id
+    session["anki_undo_reveal_question_id"] = question_id
+    flash(f"已撤销上一题（{ANKI_RATING_LABELS.get(rating, rating)}），请重新选择复习时间。", "success")
     return redirect(url_for("anki_study"))
 
 
@@ -2797,6 +2941,8 @@ def anki_end():
     session.pop("anki_include_correct", None)
     session.pop("anki_again_queue", None)
     session.pop("anki_current_question_id", None)
+    session.pop("anki_undo", None)
+    session.pop("anki_undo_reveal_question_id", None)
     session.pop("anki_session_stats", None)
     flash("已结束本次 Anki 刷题。", "success")
     return render_template(

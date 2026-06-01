@@ -107,13 +107,38 @@
   align-items: center;
   margin-bottom: 12px;
 }
+.anki-toolbar-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.anki-undo-btn {
+  background: #fff;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.anki-undo-btn:hover { background: #f9fafb; border-color: #9ca3af; }
 </style>
 
 <div class="anki-toolbar">
   <h2 style="margin:0;">📇 Anki 刷题</h2>
-  <form method="post" action="{{ url_for('anki_end') }}" style="margin:0;">
-    <button type="submit" class="btn-light" onclick="return confirm('确定结束本次刷题？');">结束刷题</button>
-  </form>
+  <div class="anki-toolbar-actions">
+    {% if can_undo and undo_info %}
+    <form method="post" action="{{ url_for('anki_undo') }}" style="margin:0;">
+      <button type="submit" class="anki-undo-btn" title="撤销上一题的复习时间选择">
+        ↩ 撤销上一题（{{ undo_info.rating_label }}）
+      </button>
+    </form>
+    {% endif %}
+    <form method="post" action="{{ url_for('anki_end') }}" style="margin:0;">
+      <button type="submit" class="btn-light" onclick="return confirm('确定结束本次刷题？');">结束刷题</button>
+    </form>
+  </div>
 </div>
 
 <div class="anki-stats-panel">
