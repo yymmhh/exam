@@ -89,16 +89,6 @@
   <form method="post" action="{{ url_for('anki_start') }}" id="ankiForm">
     <input type="hidden" name="category_ids" id="categoryIdsInput">
 
-    <div style="margin-bottom: 20px;">
-      <label style="display:flex; align-items:flex-start; gap:8px; cursor:pointer;">
-        <input type="checkbox" name="include_correct" value="1" style="margin-top:4px;">
-        <span>
-          <strong>包含练习中已答对的题目</strong><br>
-          <span class="muted" style="font-size:13px;">不勾选时，只刷未答对或从未做过的题（适合巩固薄弱点）</span>
-        </span>
-      </label>
-    </div>
-
     <button type="submit" style="background:#0f766e; border-color:#0f766e; padding:12px 24px; font-size:16px; color:white; border-radius:8px; cursor:pointer; border:none;">
       开始刷题 →
     </button>

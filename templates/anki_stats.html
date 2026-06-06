@@ -114,6 +114,17 @@
 </div>
 
 <div class="card" style="margin-top:16px;">
+  <h3 style="margin-top:0;">未来 30 天排期预览</h3>
+  <p class="muted" style="font-size:13px; margin-bottom:12px;">
+    基于当前卡片的下次复习时间（next_review_at），显示未来每天需要复习的题目数量。
+    共 <strong>{{ future_schedule_stats.total_scheduled }}</strong> 道题目已排期。
+  </p>
+  <div class="chart-wrap">
+    <canvas id="ankiFutureScheduleChart"></canvas>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
   <h3 style="margin-top:0;">题库进度</h3>
   <div class="stats-grid">
     <div class="stat-card">
@@ -234,6 +245,57 @@
           beginAtZero: true,
           ticks: { stepSize: 1, precision: 0 },
           title: { display: true, text: '刷题数（道）' },
+        },
+      },
+    },
+  });
+})();
+
+(function () {
+  const futureData = {{ future_schedule_stats.daily | tojson }};
+  const labels = futureData.map(d => d.label);
+  const counts = futureData.map(d => d.count);
+  
+  const ctx = document.getElementById('ankiFutureScheduleChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '待复习题目数',
+        data: counts,
+        borderColor: '#0f766e',
+        backgroundColor: 'rgba(15, 118, 110, 0.1)',
+        borderWidth: 2,
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (context) => {
+              return context.parsed.y + ' 道题目';
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { stepSize: 1, precision: 0 },
+          title: { display: true, text: '题目数量（道）' },
         },
       },
     },

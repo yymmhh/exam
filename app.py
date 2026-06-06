@@ -2386,58 +2386,68 @@ def _anki_correct_question_ids(user_id: int) -> set[int]:
     }
 
 
-def _anki_pool_question_ids(user_id: int, category_ids: list[int], include_correct: bool) -> list[int]:
+
+def _anki_pool_question_ids(user_id: int, category_ids: list[int]) -> list[int]:
+    """获取题库中的所有题目ID（不再过滤已答对的题目）"""
     query = Question.query.filter(Question.category_id.in_(category_ids))
-    if not include_correct:
-        correct_ids = _anki_correct_question_ids(user_id)
-        if correct_ids:
-            query = query.filter(~Question.id.in_(correct_ids))
     return [q.id for q in query.all()]
 
-
 def _anki_pick_next_question_id(user_id: int, pool_ids: list[int]) -> int | None:
+    """简化版：直接按 next_review_at 排序获取下一个题目"""
     if not pool_ids:
         return None
 
     now = datetime.utcnow()
-    cards = {
-        c.question_id: c
-        for c in AnkiCard.query.filter(
-            AnkiCard.user_id == user_id, AnkiCard.question_id.in_(pool_ids)
-        ).all()
-    }
-
-    again_queue = session.get("anki_again_queue") or []
-    for qid in again_queue:
-        if qid not in pool_ids:
-            continue
-        if qid in cards and cards[qid].next_review_at > now:
-            continue
-        return qid
-
-    due_ids = [qid for qid in pool_ids if qid not in cards or cards[qid].next_review_at <= now]
-    new_ids = [qid for qid in pool_ids if qid not in cards]
-    learning_ids = [
-        qid
-        for qid in pool_ids
-        if qid in cards and cards[qid].repetitions == 0 and cards[qid].next_review_at <= now
-    ]
-
-    if learning_ids:
-        return random.choice(learning_ids)
-    if due_ids:
-        return random.choice(due_ids)
+    
+    # 查询所有相关的卡片，按 next_review_at 排序
+    cards = (
+        AnkiCard.query.filter(
+            AnkiCard.user_id == user_id, 
+            AnkiCard.question_id.in_(pool_ids)
+        )
+        .order_by(AnkiCard.next_review_at.asc())
+        .all()
+    )
+    
+    # 创建已存在卡片的映射
+    card_map = {c.question_id: c for c in cards}
+    
+    # 优先返回已到期的卡片（包括新卡片）
+    due_cards = []
+    new_ids = []
+    
+    for qid in pool_ids:
+        if qid in card_map:
+            # 已有卡片，检查是否到期
+            if card_map[qid].next_review_at <= now:
+                due_cards.append((card_map[qid].next_review_at, qid))
+        else:
+            # 新卡片
+            new_ids.append(qid)
+    
+    # 按到期时间排序
+    due_cards.sort(key=lambda x: x[0])
+    
+    # 优先返回最早到期的卡片
+    if due_cards:
+        return due_cards[0][1]
+    
+    # 如果没有到期卡片，返回新卡片
     if new_ids:
         return random.choice(new_ids)
+    
+    # 如果都没有，说明所有卡片都未到复习时间
     return None
 
 
 def _anki_study_stats(user_id: int, pool_ids: list[int]) -> dict:
+    """简化的统计信息"""
     if not pool_ids:
         return {
             "total": 0, "due": 0, "new": 0, "learning": 0,
             "scheduled": 0, "mature": 0, "studied": 0,
         }
+    
     now = datetime.utcnow()
     cards = {
         c.question_id: c
@@ -2445,6 +2455,8 @@ def _anki_study_stats(user_id: int, pool_ids: list[int]) -> dict:
             AnkiCard.user_id == user_id, AnkiCard.question_id.in_(pool_ids)
         ).all()
     }
+    
+    # 计算各种状态的卡片数量
     due = sum(1 for qid in pool_ids if qid not in cards or cards[qid].next_review_at <= now)
     new = sum(1 for qid in pool_ids if qid not in cards)
     learning = sum(
@@ -2460,6 +2472,7 @@ def _anki_study_stats(user_id: int, pool_ids: list[int]) -> dict:
         if qid in cards and cards[qid].interval_days >= 21
     )
     studied = len(cards)
+    
     return {
         "total": len(pool_ids),
         "due": due,
@@ -2619,6 +2632,59 @@ def _anki_review_activity_stats(user_id: int, days: int = 7) -> dict:
     today_stats = buckets.get(today, {**_anki_empty_rating_counts(), "date": today.isoformat(), "label": "今天"})
     return {"today": today_stats, "daily": daily}
 
+def _anki_future_schedule_stats(user_id: int, category_ids: list[int], days: int = 30) -> dict:
+    """统计未来 N 天每天需要复习的题目数量（基于 next_review_at）"""
+    from datetime import date as date_type
+    
+    today = _anki_local_today()
+    
+    # 获取题库中的所有题目ID
+    pool_ids = _anki_pool_question_ids(user_id, category_ids)
+    if not pool_ids:
+        return {
+            "daily": [],
+            "total_scheduled": 0,
+        }
+    
+    # 查询所有相关的卡片
+    cards = AnkiCard.query.filter(
+        AnkiCard.user_id == user_id,
+        AnkiCard.question_id.in_(pool_ids),
+        AnkiCard.next_review_at.isnot(None)
+    ).all()
+    
+    # 初始化每天的统计
+    daily = []
+    buckets: dict[date_type, int] = {}
+    for i in range(days):
+        d = today + timedelta(days=i)
+        buckets[d] = 0
+    
+    # 统计每天的到期题目数
+    for card in cards:
+        if card.next_review_at:
+            # 将 UTC 时间转换为本地日期
+            review_date = _anki_local_date_from_utc_naive(card.next_review_at)
+            if review_date in buckets:
+                buckets[review_date] += 1
+    
+    # 构建返回数据
+    for i in range(days):
+        d = today + timedelta(days=i)
+        label = "今天" if i == 0 else f"{d.month}/{d.day}"
+        daily.append({
+            "date": d.isoformat(),
+            "label": label,
+            "count": buckets[d],
+        })
+    
+    total_scheduled = sum(buckets.values())
+    
+    return {
+        "daily": daily,
+        "total_scheduled": total_scheduled,
+    }
+
 
 @app.route("/anki/start", methods=["GET", "POST"])
 @login_required
@@ -2636,14 +2702,13 @@ def anki_start():
             flash("请至少选择一个题库。", "error")
             return redirect(url_for("anki_start"))
 
-        include_correct = request.form.get("include_correct") == "1"
-        pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+        pool_ids = _anki_pool_question_ids(current_user.id, category_ids)
         if not pool_ids:
             flash("当前设置下没有可刷题目。", "error")
             return redirect(url_for("anki_start"))
 
         session["anki_category_ids"] = category_ids
-        session["anki_include_correct"] = include_correct
+        # Deleted:session["anki_include_correct"] = include_correct
         session["anki_again_queue"] = []
         session["anki_session_stats"] = {
             "reviewed": 0, "again": 0, "hard": 0, "good": 0, "easy": 0,
@@ -2655,7 +2720,7 @@ def anki_start():
 
     category_stats = []
     for c in categories:
-        pool = _anki_pool_question_ids(current_user.id, [c.id], include_correct=True)
+        pool = _anki_pool_question_ids(current_user.id, [c.id])
         category_stats.append({"category": c, "count": len(pool)})
 
     return render_template(
@@ -2663,7 +2728,6 @@ def anki_start():
         categories=categories,
         category_stats=category_stats,
     )
-
 
 @app.route("/anki/study")
 @login_required
@@ -2673,8 +2737,7 @@ def anki_study():
         flash("请先选择刷题设置。", "info")
         return redirect(url_for("anki_start"))
 
-    include_correct = session.get("anki_include_correct", False)
-    pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+    pool_ids = _anki_pool_question_ids(current_user.id, category_ids)
     if not pool_ids:
         return render_template("anki_done.html", reason="empty", can_undo=False)
 
@@ -2715,6 +2778,23 @@ def anki_study():
 
     stats = _anki_study_stats(current_user.id, pool_ids)
     again_count = len(session.get("anki_again_queue") or [])
+    
+    # 获取该题目的刷题历史统计
+    review_logs = AnkiReviewLog.query.filter_by(
+        user_id=current_user.id,
+        question_id=question_id
+    ).order_by(AnkiReviewLog.reviewed_at.desc()).all()
+    
+    total_reviews = len(review_logs)
+    
+    # 格式化历史记录（最多显示最近50条）
+    history = []
+    for log in review_logs[:50]:
+        history.append({
+            "rating": log.rating,
+            "rating_label": ANKI_RATING_LABELS.get(log.rating, log.rating),
+            "reviewed_at": log.reviewed_at.strftime("%Y-%m-%d %H:%M"),
+        })
 
     return render_template(
         "anki_study.html",
@@ -2726,6 +2806,8 @@ def anki_study():
         show_answer=show_answer,
         can_undo=bool(session.get("anki_undo")),
         undo_info=_anki_undo_info(),
+        total_reviews=total_reviews,
+        history=history,
     )
 
 
@@ -2741,8 +2823,7 @@ def anki_reveal(question_id):
         return redirect(url_for("anki_start"))
 
     category_ids = session.get("anki_category_ids") or []
-    include_correct = session.get("anki_include_correct", False)
-    pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+    pool_ids = _anki_pool_question_ids(current_user.id, category_ids)
     card = AnkiCard.query.filter_by(user_id=current_user.id, question_id=question_id).first()
     rating_buttons = []
     for key in ("again", "hard", "good", "easy"):
@@ -2756,6 +2837,23 @@ def anki_reveal(question_id):
 
     stats = _anki_study_stats(current_user.id, pool_ids)
     again_count = len(session.get("anki_again_queue") or [])
+    
+    # 获取该题目的刷题历史统计
+    review_logs = AnkiReviewLog.query.filter_by(
+        user_id=current_user.id,
+        question_id=question_id
+    ).order_by(AnkiReviewLog.reviewed_at.desc()).all()
+    
+    total_reviews = len(review_logs)
+    
+    # 格式化历史记录（最多显示最近50条）
+    history = []
+    for log in review_logs[:50]:
+        history.append({
+            "rating": log.rating,
+            "rating_label": ANKI_RATING_LABELS.get(log.rating, log.rating),
+            "reviewed_at": log.reviewed_at.strftime("%Y-%m-%d %H:%M"),
+        })
 
     return render_template(
         "anki_study.html",
@@ -2767,6 +2865,8 @@ def anki_reveal(question_id):
         show_answer=True,
         can_undo=bool(session.get("anki_undo")),
         undo_info=_anki_undo_info(),
+        total_reviews=total_reviews,
+        history=history,
     )
 
 
@@ -2894,7 +2994,6 @@ def anki_undo():
     flash(f"已撤销上一题（{ANKI_RATING_LABELS.get(rating, rating)}），请重新选择复习时间。", "success")
     return redirect(url_for("anki_study"))
 
-
 @app.route("/anki/stats")
 @login_required
 def anki_stats():
@@ -2902,16 +3001,15 @@ def anki_stats():
     if not category_ids:
         categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
         category_ids = [c.id for c in categories]
-        include_correct = True
         in_session = False
     else:
-        include_correct = session.get("anki_include_correct", False)
         in_session = True
 
-    pool_ids = _anki_pool_question_ids(current_user.id, category_ids, include_correct)
+    pool_ids = _anki_pool_question_ids(current_user.id, category_ids)
     stats = _anki_study_stats(current_user.id, pool_ids)
     session_stats = _anki_session_stats() if in_session else None
     activity_stats = _anki_review_activity_stats(current_user.id)
+    future_schedule_stats = _anki_future_schedule_stats(current_user.id, category_ids, days=30)
     category_names = [
         c.name for c in Category.query.filter(Category.id.in_(category_ids)).all()
     ]
@@ -2921,10 +3019,14 @@ def anki_stats():
         stats=stats,
         session_stats=session_stats,
         activity_stats=activity_stats,
+        future_schedule_stats=future_schedule_stats,
         rating_labels=ANKI_RATING_LABELS,
         category_names=category_names,
         in_session=in_session,
     )
+
+
+
 
 
 @app.route("/anki/done")
@@ -2932,24 +3034,16 @@ def anki_stats():
 def anki_done():
     return render_template("anki_done.html", reason="manual")
 
-
 @app.post("/anki/end")
 @login_required
 def anki_end():
     session_stats = _anki_session_stats()
     session.pop("anki_category_ids", None)
-    session.pop("anki_include_correct", None)
+    # Deleted:session.pop("anki_include_correct", None)
     session.pop("anki_again_queue", None)
     session.pop("anki_current_question_id", None)
     session.pop("anki_undo", None)
-    session.pop("anki_undo_reveal_question_id", None)
-    session.pop("anki_session_stats", None)
-    flash("已结束本次 Anki 刷题。", "success")
-    return render_template(
-        "anki_done.html",
-        reason="manual",
-        session_stats=session_stats,
-    )
+
 
 
 @app.template_filter("render_markdown")
