@@ -113,7 +113,7 @@
   <hr style="margin: 24px 0; border: none; border-top: 1px solid #e5e7eb;">
   
   <h3>⚙️ 抽题设置</h3>
-  <form method="post" action="{{ url_for('random_practice_start') }}" id="randomPracticeForm">
+  <form method="post" action="{{ url_for('random_practice.random_practice_start') }}" id="randomPracticeForm">
     <!-- 隐藏字段：存储选中的题库 ID -->
     <input type="hidden" name="category_ids" id="categoryIdsInput">
     

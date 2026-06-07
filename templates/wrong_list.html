@@ -13,7 +13,7 @@
       <p class="muted" style="margin:4px 0 0;">从错题库中抽出全部题目进行顺序练习。</p>
     </div>
     <a
-      href="{{ url_for('wrong_practice_start') }}"
+      href="{{ url_for('wrong.wrong_practice_start') }}"
       class="{% if wrongs|length == 0 %}btn-light{% endif %}"
       style="text-decoration:none; padding:10px 16px; border-radius:8px; border:1px solid #d1d5db; background:#fff; font-weight:500;"
       >开始错题练习
@@ -51,7 +51,7 @@
     </div>
     {% endif %}
     
-    <form method="post" action="{{ url_for('wrong_remove', question_id=q.id) }}" style="margin-top:12px;">
+    <form method="post" action="{{ url_for('wrong.wrong_remove', question_id=q.id) }}" style="margin-top:12px;">
       <button type="submit" style="background:#dc3545; border-color:#dc3545;">移除</button>
     </form>
   </div>

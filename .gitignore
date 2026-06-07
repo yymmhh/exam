@@ -1,5 +1,14 @@
 normalized_questions.json
 question.json
-__pycache__/app.cpython-313.pyc
-__pycache__/import_questions.cpython-313.pyc
+
 static/*
+.venv/*
+
+电工单选题.json
+电工判断题.json
+extracted_questions.json
+kening_import.json
+kening.json
+instance/exam.db
+.idea/*
+__pycache__/*

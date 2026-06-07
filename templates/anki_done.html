@@ -26,13 +26,13 @@
 
   <div style="margin-top:24px; display:flex; gap:12px; justify-content:center; flex-wrap:wrap;">
     {% if can_undo and undo_info %}
-    <form method="post" action="{{ url_for('anki_undo') }}" style="margin:0;">
+    <form method="post" action="{{ url_for('anki.anki_undo') }}" style="margin:0;">
       <button type="submit" style="background:#fff; border:1px solid #d1d5db; color:#374151; padding:12px 24px; border-radius:8px; cursor:pointer; font-weight:600;">
         ↩ 撤销上一题（{{ undo_info.rating_label }}）
       </button>
     </form>
     {% endif %}
-    <a href="{{ url_for('anki_start') }}" style="display:inline-block; background:#0f766e; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:600;">
+    <a href="{{ url_for('anki.anki_start') }}" style="display:inline-block; background:#0f766e; color:white; padding:12px 24px; border-radius:8px; text-decoration:none; font-weight:600;">
       返回设置
     </a>
     <a href="{{ url_for('index') }}" class="btn-light" style="display:inline-block; padding:12px 24px; text-decoration:none;">

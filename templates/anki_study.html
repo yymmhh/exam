@@ -251,13 +251,13 @@
     </button>
     {% endif %}
     {% if can_undo and undo_info %}
-    <form method="post" action="{{ url_for('anki_undo') }}" style="margin:0;">
+    <form method="post" action="{{ url_for('anki.anki_undo') }}" style="margin:0;">
       <button type="submit" class="anki-undo-btn" title="撤销上一题的复习时间选择">
         ↩ 撤销上一题（{{ undo_info.rating_label }}）
       </button>
     </form>
     {% endif %}
-    <form method="post" action="{{ url_for('anki_end') }}" style="margin:0;">
+    <form method="post" action="{{ url_for('anki.anki_end') }}" style="margin:0;">
       <button type="submit" class="btn-light" onclick="return confirm('确定结束本次刷题？');">结束刷题</button>
     </form>
   </div>
@@ -266,7 +266,7 @@
 <div class="anki-stats-panel">
   <div class="anki-stats-header">
     <h4 style="margin:0;">📊 刷题统计</h4>
-    <a href="{{ url_for('anki_stats') }}" class="anki-stats-link">查看详情 →</a>
+    <a href="{{ url_for('anki.anki_stats') }}" class="anki-stats-link">查看详情 →</a>
   </div>
   <div class="anki-stats" style="margin-bottom:10px;">
     <span>题库 <strong>{{ stats.total }}</strong></span>
@@ -322,7 +322,7 @@
   {% endif %}
 
   {% if not show_answer %}
-  <form method="post" action="{{ url_for('anki_reveal', question_id=question.id) }}" style="margin-top:24px; text-align:center;">
+  <form method="post" action="{{ url_for('anki.anki_reveal', question_id=question.id) }}" style="margin-top:24px; text-align:center;">
     <button type="submit" class="anki-reveal-btn">显示答案</button>
   </form>
   <p class="muted" style="text-align:center; margin-top:12px; font-size:13px;">
@@ -359,7 +359,7 @@
 
     <div class="anki-rating-bar">
       {% for btn in rating_buttons %}
-      <form method="post" action="{{ url_for('anki_rate', question_id=question.id) }}">
+      <form method="post" action="{{ url_for('anki.anki_rate', question_id=question.id) }}">
         <input type="hidden" name="rating" value="{{ btn.key }}">
         <button type="submit" class="anki-rate-btn anki-rate-{{ btn.key }}">
           {{ btn.label }}

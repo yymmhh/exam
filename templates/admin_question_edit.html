@@ -2,7 +2,7 @@
 {% block title %}{% if is_new %}添加题目{% else %}编辑题目{% endif %}{% endblock %}
 {% block content %}
 <h2>{% if is_new %}添加题目{% else %}编辑题目 #{{ question.id }}{% endif %}</h2>
-<p><a href="{{ url_for('admin_questions', category_id=category_id if is_new else question.category_id) }}">返回题目列表</a></p>
+<p><a href="{{ url_for('admin.admin_questions', category_id=category_id if is_new else question.category_id) }}">返回题目列表</a></p>
 
 <style>
 /* 图片上传区域样式 */

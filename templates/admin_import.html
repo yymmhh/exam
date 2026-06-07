@@ -147,7 +147,7 @@
         </ul>
       </div>
       
-      <form method="post" action="{{ url_for('admin_import_questions', category_id=category.id) }}">
+      <form method="post" action="{{ url_for('admin.admin_import_questions', category_id=category.id) }}">
         <label style="display:block; margin-bottom:8px;"><strong>JSON 数据：</strong></label>
         <textarea name="content" class="import-textarea" required>{{ sample }}</textarea>
         
@@ -155,7 +155,7 @@
           <button type="submit" style="background:#2563eb; padding:12px 24px; font-size:16px;">
             🚀 开始导入
           </button>
-          <a href="{{ url_for('admin_questions', category_id=category.id) }}" 
+          <a href="{{ url_for('admin.admin_questions', category_id=category.id) }}" 
              style="padding:12px 24px; background:#6b7280; color:white; text-decoration:none; border-radius:4px;">
             ← 返回题目列表
           </a>
@@ -175,7 +175,7 @@
         </ul>
       </div>
       
-      <form method="post" action="{{ url_for('admin_import_questions_file', category_id=category.id) }}" enctype="multipart/form-data">
+      <form method="post" action="{{ url_for('admin.admin_import_questions_file', category_id=category.id) }}" enctype="multipart/form-data">
         <div class="file-upload-box" id="dropZone">
           <div class="upload-icon">📄</div>
           <p style="margin:12px 0; color:#6b7280;">拖拽 JSON 文件到此处，或点击选择文件</p>
@@ -190,7 +190,7 @@
           <button type="submit" style="background:#2563eb; padding:12px 24px; font-size:16px;">
             🚀 开始导入
           </button>
-          <a href="{{ url_for('admin_questions', category_id=category.id) }}" 
+          <a href="{{ url_for('admin.admin_questions', category_id=category.id) }}" 
              style="padding:12px 24px; background:#6b7280; color:white; text-decoration:none; border-radius:4px;">
             ← 返回题目列表
           </a>

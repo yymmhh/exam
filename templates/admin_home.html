@@ -6,7 +6,7 @@
 <div class="grid-2">
   <div class="card">
     <h3>创建题库大类</h3>
-    <form method="post" action="{{ url_for('admin_category_add') }}">
+    <form method="post" action="{{ url_for('admin.admin_category_add') }}">
       <p>名称</p>
       <p><input name="name" required></p>
       <p>描述</p>
@@ -19,7 +19,7 @@
 
   <div class="card">
     <h3>新增用户（仅后台）</h3>
-    <form method="post" action="{{ url_for('admin_user_add') }}">
+    <form method="post" action="{{ url_for('admin.admin_user_add') }}">
       <p>用户名</p>
       <p><input name="username" required></p>
       <p>初始密码</p>
@@ -37,14 +37,14 @@
   <ul>
     {% for c in categories %}
     <li>
-      <a href="{{ url_for('admin_questions', category_id=c.id) }}">{{ c.name }}</a>
-      (<a href="{{ url_for('admin_category_edit', category_id=c.id) }}">编辑</a>)
-      (<a href="{{ url_for('admin_add_question', category_id=c.id) }}">➕ 添加题目</a>)
-      (<a href="{{ url_for('admin_import_questions', category_id=c.id) }}">📥 批量导入</a>)
+      <a href="{{ url_for('admin.admin_questions', category_id=c.id) }}">{{ c.name }}</a>
+      (<a href="{{ url_for('admin.admin_category_edit', category_id=c.id) }}">编辑</a>)
+      (<a href="{{ url_for('admin.admin_question_add', category_id=c.id) }}">➕ 添加题目</a>)
+      (<a href="{{ url_for('admin.admin_import_questions', category_id=c.id) }}">📥 批量导入</a>)
     </li>
     {% endfor %}
   </ul>
-  <form method="post" action="{{ url_for('admin_category_add') }}">
+  <form method="post" action="{{ url_for('admin.admin_category_add') }}">
     <input name="name" placeholder="新题库名称" required>
     <button type="submit">添加题库</button>
   </form>
@@ -57,7 +57,7 @@
       <span><strong>{{ u.username }}</strong></span>
       <span class="muted">{{ '管理员' if u.is_admin else '普通用户' }}</span>
     </div>
-    <form method="post" action="{{ url_for('admin_toggle_user', user_id=u.id) }}" style="margin-top:8px;">
+    <form method="post" action="{{ url_for('admin.admin_toggle_user', user_id=u.id) }}" style="margin-top:8px;">
       <button type="submit" class="btn-light">切换管理员状态</button>
     </form>
   </div>

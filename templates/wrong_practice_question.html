@@ -21,7 +21,7 @@
         {% set s = statuses.get(q.id) %}
         {% set idx = loop.index %}
         {% set is_current = (idx == current_index) %}
-        <form method="post" action="{{ url_for('wrong_practice_goto', session_id=session.id) }}" style="display:inline;">
+        <form method="post" action="{{ url_for('wrong.wrong_practice_goto', session_id=session.id) }}" style="display:inline;">
           <input type="hidden" name="target" value="{{ idx }}">
           <button type="submit"
                   style="min-width:44px; 
@@ -60,7 +60,7 @@
   </div>
   
   <h3>{{ question.stem|render_stem }}</h3>
-  <form method="post" action="{{ url_for('wrong_practice_submit', session_id=session.id, index=index) }}">
+  <form method="post" action="{{ url_for('wrong.wrong_practice_submit', session_id=session.id, index=index) }}">
     {% if question.qtype in ['single', 'multiple'] %}
       {% for choice in question.choices|sort(attribute='option_key') %}
         <p>
@@ -87,12 +87,12 @@
           <strong>📝 待确认：</strong>请对比上方答案，自行评估是否正确
         </p>
         <div style="display:flex; gap:8px; margin-top:10px;">
-          <form method="post" action="{{ url_for('mark_mastered', question_id=question.id) }}">
+          <form method="post" action="{{ url_for('practice.mark_mastered', question_id=question.id) }}">
             <button type="submit" style="background:#28a745; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
               ✓ 我答对了（移除错题库）
             </button>
           </form>
-          <form method="post" action="{{ url_for('mark_wrong', question_id=question.id) }}">
+          <form method="post" action="{{ url_for('practice.mark_wrong', question_id=question.id) }}">
             <button type="submit" style="background:#dc3545; color:white; padding:8px 15px; border:none; border-radius:4px; cursor:pointer;">
               ✗ 我答错了（保留在错题库）
             </button>
@@ -117,11 +117,11 @@
   <div class="row" style="margin-top:12px;">
     {% if question.qtype != 'blank' %}
       {% if wrong %}
-        <form method="post" action="{{ url_for('wrong_remove', question_id=question.id) }}">
+        <form method="post" action="{{ url_for('wrong.wrong_remove', question_id=question.id) }}">
           <button type="submit" class="btn-light">从错题库移除</button>
         </form>
       {% else %}
-        <form method="post" action="{{ url_for('wrong_add', question_id=question.id) }}">
+        <form method="post" action="{{ url_for('wrong.wrong_add', question_id=question.id) }}">
           <button type="submit" class="btn-light">加入错题库</button>
         </form>
       {% endif %}

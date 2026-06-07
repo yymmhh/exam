@@ -178,7 +178,7 @@
       {% for q in questions %}
         {% set s = statuses.get(q.id) %}
         {% set idx = loop.index %}
-        <form method="post" action="{{ url_for('random_practice_goto', session_id=session.id) }}" class="answer-sheet-btn-item">
+        <form method="post" action="{{ url_for('random_practice.random_practice_goto', session_id=session.id) }}" class="answer-sheet-btn-item">
           <input type="hidden" name="target" value="{{ idx }}">
           <button type="submit" 
                   class="{% if idx == current_index %}current {% endif %}{% if s and s.user_answer %}{% if s.is_correct %}correct{% elif s.is_correct == false %}wrong{% else %}pending{% endif %}{% endif %}">
@@ -225,7 +225,7 @@
     {{ question.stem|render_markdown_with_blanks }}
   </div>
   
-  <form method="post" action="{{ url_for('random_practice_submit', session_id=session.id, index=index) }}">
+  <form method="post" action="{{ url_for('random_practice.random_practice_submit', session_id=session.id, index=index) }}">
     {% if question.qtype in ['single', 'multiple'] %}
       {% for choice in question.choices|sort(attribute='option_key') %}
         <div class="question-option markdown-body">
@@ -289,10 +289,10 @@
   {% endif %}
 
   <div class="navigation-buttons">
-    <form method="post" action="{{ url_for('random_practice_prev', session_id=session.id, index=index) }}">
+    <form method="post" action="{{ url_for('random_practice.random_practice_prev', session_id=session.id, index=index) }}">
       <button type="submit" {% if index == 1 %}disabled{% endif %}>上一题</button>
     </form>
-    <form method="post" action="{{ url_for('random_practice_next', session_id=session.id, index=index) }}">
+    <form method="post" action="{{ url_for('random_practice.random_practice_next', session_id=session.id, index=index) }}">
       <button type="submit">{{ '完成练习' if index == total else '下一题' }}</button>
     </form>
   </div>
