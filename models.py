@@ -34,6 +34,7 @@ class Category(db.Model):
     name = db.Column(db.String(100), unique=True, nullable=False)
     description = db.Column(db.Text, default="")
     sort_order = db.Column(db.Integer, default=0)
+    is_active = db.Column(db.Boolean, default=True)  # 是否启用
 
 
 class Question(db.Model):

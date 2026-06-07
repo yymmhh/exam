@@ -9,7 +9,8 @@ practice_bp = Blueprint('practice', __name__)
 @practice_bp.route("/practice")
 @login_required
 def practice_categories():
-    categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
+    # 只获取启用的分类
+    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order.asc(), Category.name.asc()).all()
     
     # 获取每个分类的进度统计
     progress = {}

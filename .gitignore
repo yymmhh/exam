@@ -12,3 +12,5 @@ kening.json
 instance/exam.db
 .idea/*
 __pycache__/*
+question.html
+extract_questions.py

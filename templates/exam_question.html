@@ -6,31 +6,63 @@
   {% if session.scope == 'all' %}全部题库{% else %}{{ session.category.name }}{% endif %}
 </h2>
 <p>第 {{ index }} / {{ total }} 题</p>
+
+<!-- 答题卡 -->
+<div class="card" style="margin-bottom: 16px;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+    <h3 style="margin: 0;">📋 答题卡</h3>
+    <div style="font-size: 13px; color: #6c757d;">
+      <span style="margin-right: 12px;">⚪ 未作答</span>
+      <span style="margin-right: 12px;">🟢 正确</span>
+      <span>🔴 错误</span>
+    </div>
+  </div>
+  <div class="answer-sheet-grid">
+    {% for i in range(1, total + 1) %}
+    <div class="answer-sheet-btn-item">
+      <a href="{{ url_for('exam.exam_question', session_id=session.id, index=i) }}" 
+         class="answer-sheet-link"
+         data-index="{{ i }}"
+         style="text-decoration: none;">
+        <button type="button" 
+                class="{% if i == index %}current{% endif %}"
+                id="card-btn-{{ i }}">
+          {{ i }}
+        </button>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
 <div class="card">
   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
     <div style="font-size:14px; color:#6c757d;">
       <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
-        📚 {{ eq.question.category.name }}
+        📚 {{ question.category.name }}
       </span>
       <span style="background:#f8f9fa; padding:4px 8px; border-radius:4px;">
-        🔖 ID: {{ eq.question.id }}
+        🔖 ID: {{ question.id }}
+      </span>
+      <span style="background:#fff3cd; padding:4px 8px; border-radius:4px;">
+        🔄 已刷 {{ review_count }} 次
       </span>
     </div>
     <div style="font-size:13px; color:#6c757d;">
-      {% if eq.question.qtype == 'single' %}单选题
-      {% elif eq.question.qtype == 'multiple' %}多选题
-      {% elif eq.question.qtype == 'blank' %}填空题
+      {% if question.qtype == 'single' %}单选题
+      {% elif question.qtype == 'multiple' %}多选题
+      {% elif question.qtype == 'blank' %}填空题
       {% endif %}
     </div>
   </div>
   
-  <h3>{{ eq.question.stem|render_stem }}</h3>
-  <form method="post" action="{{ url_for('exam_submit', session_id=session.id, index=index) }}">
-    {% if eq.question.qtype in ['single', 'multiple'] %}
-      {% for choice in eq.question.choices|sort(attribute='option_key') %}
+  <h3>{{ question.stem|render_stem }}</h3>
+  <form method="post" action="{{ url_for('exam.exam_submit', session_id=session.id, index=index) }}">
+    {% if question.qtype in ['single', 'multiple'] %}
+      {% for choice in question.choices|sort(attribute='option_key') %}
         <p>
           <label>
-            <input type="{{ 'checkbox' if eq.question.qtype == 'multiple' else 'radio' }}" name="answer" value="{{ choice.option_key }}">
+            <input type="{{ 'checkbox' if question.qtype == 'multiple' else 'radio' }}" name="answer" value="{{ choice.option_key }}">
             {{ choice.option_key }}. {{ choice.option_text|safe }}
           </label>
         </p>
@@ -41,5 +73,90 @@
     <p><button type="submit">{{ '提交并完成' if index == total else '提交下一题' }}</button></p>
   </form>
 </div>
-{% endblock %}
 
+<style>
+.answer-sheet-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.answer-sheet-btn-item button {
+  min-width: 40px;
+  height: 40px;
+  background: #f8f9fa;
+  color: #495057;
+  border: 2px solid #dee2e6;
+  padding: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.answer-sheet-btn-item button:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.answer-sheet-btn-item button.current {
+  background: #2563eb;
+  color: white;
+  border-color: #1e4fcc;
+  font-weight: bold;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+}
+
+.answer-sheet-btn-item button.answered-correct {
+  background: #e7f8ee;
+  color: #146c2e;
+  border-color: #b7e7c6;
+}
+
+.answer-sheet-btn-item button.answered-wrong {
+  background: #ffeaea;
+  color: #9e1b1b;
+  border-color: #ffc9c9;
+}
+
+.answer-sheet-link {
+  display: inline-block;
+}
+</style>
+
+<script>
+// 加载已答题目的状态
+document.addEventListener('DOMContentLoaded', function() {
+  loadAnswerStatus();
+});
+
+function loadAnswerStatus() {
+  const sessionId = {{ session.id }};
+  
+  // 获取所有已答题目的状态
+  fetch('/exam/' + sessionId + '/answer_status')
+    .then(response => response.json())
+    .then(data => {
+      if (data.success && data.statuses) {
+        // 更新答题卡按钮状态
+        data.statuses.forEach(status => {
+          const btn = document.getElementById('card-btn-' + status.index);
+          if (btn) {
+            btn.classList.remove('answered-correct', 'answered-wrong');
+            if (status.is_correct === true) {
+              btn.classList.add('answered-correct');
+            } else if (status.is_correct === false) {
+              btn.classList.add('answered-wrong');
+            }
+          }
+        });
+      }
+    })
+    .catch(error => {
+      console.error('加载答题状态失败:', error);
+    });
+}
+</script>
+{% endblock %}

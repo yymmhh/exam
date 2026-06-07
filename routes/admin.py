@@ -53,7 +53,7 @@ def admin_category_add():
     if Category.query.filter_by(name=name).first():
         flash("分类已存在。", "error")
         return redirect(url_for("admin.admin_home"))
-    db.session.add(Category(name=name, description=desc, sort_order=sort_order))
+    db.session.add(Category(name=name, description=desc, sort_order=sort_order, is_active=True))
     db.session.commit()
     flash("分类已创建。", "success")
     return redirect(url_for("admin.admin_home"))
@@ -85,6 +85,29 @@ def admin_category_edit(category_id):
     db.session.commit()
     flash("分类已更新。", "success")
     return redirect(url_for("admin.admin_home"))
+
+
+@admin_bp.route("/admin/category/toggle/<int:category_id>", methods=["POST"])
+@login_required
+def admin_category_toggle(category_id):
+    """切换分类的启用/禁用状态"""
+    if not admin_required():
+        return jsonify({"success": False, "message": "无权限"}), 403
+    
+    category = db.session.get(Category, category_id)
+    if not category:
+        return jsonify({"success": False, "message": "分类不存在"}), 404
+    
+    # 切换状态
+    category.is_active = not category.is_active
+    db.session.commit()
+    
+    status_text = "启用" if category.is_active else "禁用"
+    return jsonify({
+        "success": True, 
+        "message": f"分类已{status_text}",
+        "is_active": category.is_active
+    })
 
 
 @admin_bp.route("/admin/category/delete/<int:category_id>", methods=["POST"])

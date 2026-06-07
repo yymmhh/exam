@@ -34,18 +34,35 @@
 
 <div class="card">
   <h3>题库管理</h3>
-  <ul>
+  <ul style="list-style: none; padding: 0;">
     {% for c in categories %}
-    <li>
-      <a href="{{ url_for('admin.admin_questions', category_id=c.id) }}">{{ c.name }}</a>
-      (<a href="{{ url_for('admin.admin_category_edit', category_id=c.id) }}">编辑</a>)
-      (<a href="{{ url_for('admin.admin_question_add', category_id=c.id) }}">➕ 添加题目</a>)
-      (<a href="{{ url_for('admin.admin_import_questions', category_id=c.id) }}">📥 批量导入</a>)
+    <li style="padding: 12px; margin-bottom: 8px; background: {% if c.is_active %}#f8f9fa{% else %}#ffeaea{% endif %}; border-radius: 8px; border-left: 4px solid {% if c.is_active %}#28a745{% else %}#dc3545{% endif %};">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <strong>{{ c.name }}</strong>
+          {% if not c.is_active %}
+          <span style="background: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px;">已禁用</span>
+          {% endif %}
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button 
+            onclick="toggleCategory({{ c.id }}, {{ c.is_active|lower }})"
+            class="toggle-btn"
+            id="toggle-btn-{{ c.id }}"
+            style="padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-size: 13px; {% if c.is_active %}background: #ffc107; color: #000;{% else %}background: #28a745; color: white;{% endif %}">
+            {% if c.is_active %}🚫 禁用{% else %}✅ 启用{% endif %}
+          </button>
+          <a href="{{ url_for('admin.admin_questions', category_id=c.id) }}" style="text-decoration: none;">📋 题目</a>
+          <a href="{{ url_for('admin.admin_category_edit', category_id=c.id) }}" style="text-decoration: none;">✏️ 编辑</a>
+          <a href="{{ url_for('admin.admin_question_add') }}?category_id={{ c.id }}" style="text-decoration: none;">➕ 添加</a>
+          <a href="{{ url_for('admin.admin_import_questions', category_id=c.id) }}" style="text-decoration: none;">📥 导入</a>
+        </div>
+      </div>
     </li>
     {% endfor %}
   </ul>
-  <form method="post" action="{{ url_for('admin.admin_category_add') }}">
-    <input name="name" placeholder="新题库名称" required>
+  <form method="post" action="{{ url_for('admin.admin_category_add') }}" style="margin-top: 16px;">
+    <input name="name" placeholder="新题库名称" required style="margin-right: 8px;">
     <button type="submit">添加题库</button>
   </form>
 </div>
@@ -62,4 +79,162 @@
     </form>
   </div>
 {% endfor %}
+
+<style>
+.toggle-btn {
+  transition: all 0.3s ease;
+}
+
+.toggle-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.flash-message {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  min-width: 250px;
+  max-width: 400px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  animation: slideIn 0.3s ease-out;
+  font-size: 14px;
+}
+
+.flash-message.success {
+  background: #e7f8ee;
+  color: #146c2e;
+  border: 1px solid #b7e7c6;
+}
+
+.flash-message.error {
+  background: #ffeaea;
+  color: #9e1b1b;
+  border: 1px solid #ffc9c9;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+</style>
+
+<script>
+function toggleCategory(categoryId, isActive) {
+  const button = document.getElementById('toggle-btn-' + categoryId);
+  
+  // 禁用按钮，防止重复点击
+  button.disabled = true;
+  button.innerHTML = '⏳ 处理中...';
+  
+  // 发送 AJAX 请求
+  fetch('/admin/category/toggle/' + categoryId, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({})
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('网络响应错误: ' + response.status);
+    }
+    return response.json();
+  })
+  .then(data => {
+    if (data.success) {
+      // 更新按钮状态和样式
+      const li = button.closest('li');
+      
+      if (data.is_active) {
+        // 已启用
+        button.innerHTML = '🚫 禁用';
+        button.style.background = '#ffc107';
+        button.style.color = '#000';
+        li.style.background = '#f8f9fa';
+        li.style.borderLeftColor = '#28a745';
+        
+        // 移除禁用标签
+        const disabledBadge = li.querySelector('span[style*="dc3545"]');
+        if (disabledBadge) {
+          disabledBadge.remove();
+        }
+      } else {
+        // 已禁用
+        button.innerHTML = '✅ 启用';
+        button.style.background = '#28a745';
+        button.style.color = 'white';
+        li.style.background = '#ffeaea';
+        li.style.borderLeftColor = '#dc3545';
+        
+        // 添加禁用标签
+        const titleDiv = li.querySelector('div > div:first-child');
+        if (titleDiv && !titleDiv.querySelector('span[style*="dc3545"]')) {
+          const badge = document.createElement('span');
+          badge.style.cssText = 'background: #dc3545; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-left: 8px;';
+          badge.textContent = '已禁用';
+          titleDiv.appendChild(badge);
+        }
+      }
+      
+      // 显示成功提示
+      showFlashMessage('success', data.message);
+    } else {
+      throw new Error(data.message || '操作失败');
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    showFlashMessage('error', '操作失败，请重试。');
+    
+    // 恢复按钮状态
+    button.disabled = false;
+    button.innerHTML = isActive ? '🚫 禁用' : '✅ 启用';
+  });
+}
+
+function showFlashMessage(category, message) {
+  // 移除现有的 flash 消息
+  const existingMessages = document.querySelectorAll('.flash-message');
+  existingMessages.forEach(msg => msg.remove());
+  
+  // 创建新的 flash 消息元素
+  const flashDiv = document.createElement('div');
+  flashDiv.className = 'flash-message ' + category;
+  flashDiv.textContent = message;
+  
+  document.body.appendChild(flashDiv);
+  
+  // 3秒后自动消失
+  setTimeout(() => {
+    flashDiv.style.animation = 'fadeOut 0.3s ease-out';
+    setTimeout(() => {
+      flashDiv.remove();
+    }, 300);
+  }, 3000);
+}
+</script>
 {% endblock %}

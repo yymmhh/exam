@@ -9,11 +9,51 @@
   </p>
   <p>总题数：{{ session.total_count }}</p>
   <p>答对：{{ session.correct_count }}</p>
-  <p>分数：{{ session.score }}</p>
+  <p>分数：{{ "%.1f"|format(session.score) }}</p>
   <p>是否及格：{{ '是' if session.passed else '否' }}</p>
 </div>
+
+<!-- 浮动答题卡按钮 -->
+<button id="floating-answer-sheet-btn" onclick="toggleAnswerSheet()" 
+        style="position: fixed; right: 20px; bottom: 20px; z-index: 999; 
+               background: #2563eb; color: white; border: none; 
+               padding: 12px 20px; border-radius: 50px; cursor: pointer;
+               box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+               font-size: 14px; font-weight: 500;
+               transition: all 0.3s ease;">
+  📋 答题卡
+</button>
+
+<!-- 答题卡弹窗 -->
+<div id="answer-sheet-modal" class="modal-overlay" style="display: none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3 style="margin: 0;">📋 答题卡</h3>
+      <button onclick="toggleAnswerSheet()" style="background: none; border: none; 
+              font-size: 24px; cursor: pointer; color: #6c757d; padding: 0; line-height: 1;">
+        &times;
+      </button>
+    </div>
+    <div style="font-size: 13px; color: #6c757d; margin-bottom: 12px;">
+      <span style="margin-right: 12px;">🟢 正确 ({{ session.correct_count }})</span>
+      <span>🔴 错误 ({{ session.total_count - session.correct_count }})</span>
+    </div>
+    <div class="answer-sheet-grid">
+      {% for item in questions %}
+      <div class="answer-sheet-btn-item">
+        <button type="button" 
+                onclick="scrollToQuestion({{ item.question_id }})"
+                class="{% if item.is_correct %}answered-correct{% else %}answered-wrong{% endif %}">
+          {{ item.order_index + 1 }}
+        </button>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
 {% for item in questions %}
-  <div class="card">
+  <div class="card" id="question-card-{{ item.question_id }}">
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
       <div style="font-size:14px; color:#6c757d;">
         <span style="background:#e9ecef; padding:4px 8px; border-radius:4px; margin-right:8px;">
@@ -31,18 +71,535 @@
       </div>
     </div>
     
-    <h4>{{ item.order_index + 1 }}. {{ item.question.stem|render_stem }}</h4>
+    <h4 id="question-{{ item.question_id }}">{{ item.order_index + 1 }}. {{ item.question.stem|render_stem }}</h4>
     <p>你的答案：{{ item.user_answer or '未作答' }}</p>
     <p>正确答案：{{ item.question.correct_answer }}</p>
     <p>结果：{{ '正确 ✓' if item.is_correct else '错误 ✗' }}</p>
     
-    <p>解析：{{ item.question.explanation|render_explanation }}</p>
-    {% if item.question.ai_explanation %}
-    <div style="margin-top:15px; padding:15px; background:#f0f7ff; border-left:3px solid #007bff; border-radius:6px;">
-      <p style="margin:0 0 10px 0; font-weight:bold; color:#007bff;">🤖 AI 解析：</p>
-      <div class="markdown-body">{{ item.question.ai_explanation|render_markdown }}</div>
+    {% if not item.is_correct %}
+    <div style="margin-top: 10px;" id="add-to-today-container-{{ item.question_id }}">
+      <button 
+        type="button" 
+        onclick="addToToday({{ item.question_id }}, {{ session.id }})"
+        id="add-btn-{{ item.question_id }}"
+        class="add-to-today-btn"
+        data-question-id="{{ item.question_id }}"
+        data-session-id="{{ session.id }}">
+        ➕ 加入当天刷题
+      </button>
     </div>
+    {% endif %}
+    
+    <p>解析：{{ item.question.explanation|render_explanation }}</p>
+    
+    <!-- AI 解析按钮和容器 -->
+    {% if item.question.ai_explanation %}
+    <div id="ai-explanation-container-{{ item.question_id }}">
+      <button 
+        type="button" 
+        onclick="loadAIExplanation({{ item.question_id }})"
+        id="ai-btn-{{ item.question_id }}"
+        class="ai-explanation-btn">
+        🤖 查看 AI 解析
+      </button>
+    </div>
+    <div id="ai-content-{{ item.question_id }}" style="display: none;"></div>
     {% endif %}
   </div>
 {% endfor %}
+
+<div style="margin-top: 20px;">
+  <a href="{{ url_for('exam.exam_history') }}" style="background-color: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">
+    📋 查看考试记录
+  </a>
+</div>
+
+<style>
+/* 答题卡弹窗样式 */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: slideUp 0.3s ease-out;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #e5e7eb;
+}
+
+.answer-sheet-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.answer-sheet-btn-item button {
+  min-width: 40px;
+  height: 40px;
+  background: #f8f9fa;
+  color: #495057;
+  border: 2px solid #dee2e6;
+  padding: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.answer-sheet-btn-item button:hover {
+  background: #e9ecef;
+  border-color: #adb5bd;
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.answer-sheet-btn-item button.answered-correct {
+  background: #e7f8ee;
+  color: #146c2e;
+  border-color: #b7e7c6;
+}
+
+.answer-sheet-btn-item button.answered-wrong {
+  background: #ffeaea;
+  color: #9e1b1b;
+  border-color: #ffc9c9;
+}
+
+/* 浮动按钮悬停效果 */
+#floating-answer-sheet-btn:hover {
+  background: #1e4fcc;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+}
+
+/* AI 解析按钮样式 */
+.ai-explanation-btn {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 12px;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.ai-explanation-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.ai-explanation-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-explanation-btn.loading {
+  background: #6c757d;
+}
+
+.ai-explanation-content {
+  margin-top: 15px;
+  padding: 15px;
+  background: #f0f7ff;
+  border-left: 3px solid #007bff;
+  border-radius: 6px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.ai-explanation-title {
+  margin: 0 0 10px 0;
+  font-weight: bold;
+  color: #007bff;
+  font-size: 15px;
+}
+
+/* 动画 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* Flash 消息样式 */
+.flash-message {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 9999;
+  min-width: 250px;
+  max-width: 400px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  animation: slideIn 0.3s ease-out;
+  font-size: 14px;
+}
+
+.flash-message.success {
+  background: #e7f8ee;
+  color: #146c2e;
+  border: 1px solid #b7e7c6;
+}
+
+.flash-message.error {
+  background: #ffeaea;
+  color: #9e1b1b;
+  border: 1px solid #ffc9c9;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 加入当天刷题按钮样式 */
+.add-to-today-btn {
+  background-color: #28a745;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 14px;
+}
+
+.add-to-today-btn:hover:not(:disabled) {
+  background-color: #218838;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.add-to-today-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.add-to-today-btn.loading {
+  background-color: #6c757d;
+}
+
+.add-to-today-btn.success {
+  background-color: #17a2b8;
+}
+
+.add-to-today-btn.error {
+  background-color: #dc3545;
+}
+</style>
+
+<script>
+// 存储正在处理的请求，防止重复提交
+const processingRequests = new Set();
+const loadedAIExplanations = new Set();
+
+// 切换答题卡弹窗
+function toggleAnswerSheet() {
+  const modal = document.getElementById('answer-sheet-modal');
+  const btn = document.getElementById('floating-answer-sheet-btn');
+  
+  if (modal.style.display === 'none' || !modal.style.display) {
+    modal.style.display = 'flex';
+    btn.innerHTML = '✕ 关闭';
+    document.body.style.overflow = 'hidden'; // 禁止背景滚动
+  } else {
+    modal.style.display = 'none';
+    btn.innerHTML = '📋 答题卡';
+    document.body.style.overflow = ''; // 恢复滚动
+  }
+}
+
+// 点击弹窗外部关闭
+document.addEventListener('DOMContentLoaded', function() {
+  const modal = document.getElementById('answer-sheet-modal');
+  modal.addEventListener('click', function(e) {
+    if (e.target === modal) {
+      toggleAnswerSheet();
+    }
+  });
+  
+  // ESC 键关闭弹窗
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const modal = document.getElementById('answer-sheet-modal');
+      if (modal.style.display !== 'none') {
+        toggleAnswerSheet();
+      }
+    }
+  });
+});
+
+// 滚动到指定题目
+function scrollToQuestion(questionId) {
+  // 关闭弹窗
+  toggleAnswerSheet();
+  
+  // 等待弹窗关闭后滚动
+  setTimeout(() => {
+    const targetElement = document.getElementById('question-' + questionId);
+    if (targetElement) {
+      targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      
+      // 高亮目标题目
+      const card = document.getElementById('question-card-' + questionId);
+      if (card) {
+        card.style.transition = 'all 0.3s ease';
+        card.style.boxShadow = '0 0 0 3px rgba(37, 99, 235, 0.3)';
+        setTimeout(() => {
+          card.style.boxShadow = '';
+        }, 2000);
+      }
+    }
+  }, 300);
+}
+
+// 加载 AI 解析
+function loadAIExplanation(questionId) {
+  // 如果已经加载过，直接显示
+  if (loadedAIExplanations.has(questionId)) {
+    const content = document.getElementById('ai-content-' + questionId);
+    const btn = document.getElementById('ai-btn-' + questionId);
+    content.style.display = 'block';
+    btn.style.display = 'none';
+    return;
+  }
+  
+  const btn = document.getElementById('ai-btn-' + questionId);
+  const container = document.getElementById('ai-explanation-container-' + questionId);
+  
+  // 更新按钮状态为加载中
+  btn.disabled = true;
+  btn.classList.add('loading');
+  btn.innerHTML = '⏳ 加载中...';
+  
+  // 发送 AJAX 请求获取 AI 解析
+  fetch('/exam/question/' + questionId + '/ai_explanation')
+    .then(response => {
+      if (!response.ok) {
+        throw new Error('网络响应错误: ' + response.status);
+      }
+      return response.json();
+    })
+    .then(data => {
+      if (data.success && data.ai_explanation) {
+        // 创建 AI 解析内容
+        const contentDiv = document.getElementById('ai-content-' + questionId);
+        contentDiv.innerHTML = `
+          <div class="ai-explanation-content">
+            <p class="ai-explanation-title">🤖 AI 解析：</p>
+            <div class="markdown-body">${data.ai_explanation}</div>
+          </div>
+        `;
+        
+        // 显示内容，隐藏按钮
+        contentDiv.style.display = 'block';
+        btn.style.display = 'none';
+        
+        // 标记为已加载
+        loadedAIExplanations.add(questionId);
+        
+        // 渲染 Markdown 和数学公式
+        if (window.renderMarkdownMath) {
+          window.renderMarkdownMath(contentDiv);
+        }
+      } else {
+        throw new Error(data.message || '加载失败');
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      btn.disabled = false;
+      btn.classList.remove('loading');
+      btn.innerHTML = '🔄 重试';
+      showFlashMessage('error', '加载 AI 解析失败，请重试。');
+      
+      // 3秒后恢复按钮
+      setTimeout(() => {
+        btn.innerHTML = '🤖 查看 AI 解析';
+      }, 3000);
+    });
+}
+
+// 加入当天刷题
+function addToToday(questionId, sessionId) {
+  // 防止重复提交
+  if (processingRequests.has(questionId)) {
+    return;
+  }
+  
+  const button = document.getElementById('add-btn-' + questionId);
+  const container = document.getElementById('add-to-today-container-' + questionId);
+  
+  // 标记为处理中
+  processingRequests.add(questionId);
+  
+  // 更新按钮状态为加载中
+  updateButtonState(button, 'loading', '⏳ 处理中...');
+  
+  // 发送 AJAX 请求
+  fetch('/exam/' + sessionId + '/' + questionId + '/add_to_today', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({})
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('网络响应错误: ' + response.status);
+    }
+    return response.json();
+  })
+  .then(data => {
+    if (data.success) {
+      // 成功，更新按钮状态
+      updateButtonState(button, 'success', '✓ 已加入');
+      
+      // 显示成功提示
+      showFlashMessage('success', data.message || '已将该题加入到今天的复习中。');
+      
+      // 2秒后替换为文本提示
+      setTimeout(() => {
+        if (container) {
+          container.innerHTML = '<span style="color: #17a2b8; font-size: 14px; display: inline-flex; align-items: center; gap: 5px;">✓ 已加入当天复习</span>';
+        }
+      }, 2000);
+    } else {
+      // 业务逻辑失败
+      updateButtonState(button, 'error', '➕ 重试');
+      showFlashMessage('error', data.message || '操作失败，请重试。');
+      
+      // 允许重新尝试
+      setTimeout(() => {
+        processingRequests.delete(questionId);
+        if (button) {
+          button.disabled = false;
+          updateButtonState(button, '', '➕ 加入当天刷题');
+        }
+      }, 3000);
+    }
+  })
+  .catch(error => {
+    console.error('Error:', error);
+    updateButtonState(button, 'error', '➕ 重试');
+    showFlashMessage('error', '网络错误，请检查网络连接后重试。');
+    
+    // 允许重新尝试
+    setTimeout(() => {
+      processingRequests.delete(questionId);
+      if (button) {
+        button.disabled = false;
+        updateButtonState(button, '', '➕ 加入当天刷题');
+      }
+    }, 3000);
+  });
+}
+
+function updateButtonState(button, state, text) {
+  if (!button) return;
+  
+  // 移除所有状态类
+  button.classList.remove('loading', 'success', 'error');
+  
+  // 添加新状态类
+  if (state) {
+    button.classList.add(state);
+  }
+  
+  // 更新文本
+  button.textContent = text;
+  
+  // 根据状态设置禁用状态
+  if (state === 'loading') {
+    button.disabled = true;
+  } else if (state === 'success') {
+    button.disabled = true;
+  } else {
+    button.disabled = false;
+  }
+}
+
+function showFlashMessage(category, message) {
+  // 移除现有的 flash 消息
+  const existingMessages = document.querySelectorAll('.flash-message');
+  existingMessages.forEach(msg => msg.remove());
+  
+  // 创建新的 flash 消息元素
+  const flashDiv = document.createElement('div');
+  flashDiv.className = 'flash-message ' + category;
+  flashDiv.textContent = message;
+  
+  document.body.appendChild(flashDiv);
+  
+  // 3秒后自动消失
+  setTimeout(() => {
+    flashDiv.style.animation = 'fadeOut 0.3s ease-out';
+    setTimeout(() => {
+      flashDiv.remove();
+    }, 300);
+  }, 3000);
+}
+
+// 页面加载完成后
+document.addEventListener('DOMContentLoaded', function() {
+  console.log('考试结果页面已加载');
+});
+</script>
 {% endblock %}

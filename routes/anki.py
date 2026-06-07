@@ -303,7 +303,8 @@ def _anki_future_schedule_stats(user_id, category_ids, days=30):
 @anki_bp.route("/anki/start", methods=["GET", "POST"])
 @login_required
 def anki_start():
-    categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
+    # 只获取启用的分类
+    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order.asc(), Category.name.asc()).all()
 
     if request.method == "POST":
         category_ids_str = request.form.get("category_ids", "")
@@ -610,7 +611,8 @@ def anki_undo():
 def anki_stats():
     category_ids = session.get("anki_category_ids")
     if not category_ids:
-        categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
+        # 只获取启用的分类
+        categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order.asc(), Category.name.asc()).all()
         category_ids = [c.id for c in categories]
         in_session = False
     else:
@@ -622,7 +624,7 @@ def anki_stats():
     activity_stats = _anki_review_activity_stats(current_user.id)
     future_schedule_stats = _anki_future_schedule_stats(current_user.id, category_ids, days=30)
     category_names = [
-        c.name for c in Category.query.filter(Category.id.in_(category_ids)).all()
+        c.name for c in Category.query.filter(Category.id.in_(category_ids), Category.is_active==True).all()
     ]
 
     return render_template(

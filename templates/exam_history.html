@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}考试记录{% endblock %}
+{% block content %}
+<h2>考试记录</h2>
+
+{% if sessions %}
+<!-- 统计信息 -->
+<div class="card" style="margin-bottom: 20px;">
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; text-align: center;">
+    <div>
+      <div style="font-size: 32px; font-weight: bold; color: #2563eb;">{{ sessions|length }}</div>
+      <div style="color: #6c757d; font-size: 14px;">总考试次数</div>
+    </div>
+    <div>
+      <div style="font-size: 32px; font-weight: bold; color: #28a745;">
+        {{ sessions|selectattr('passed')|list|length }}
+      </div>
+      <div style="color: #6c757d; font-size: 14px;">及格次数</div>
+    </div>
+    <div>
+      <div style="font-size: 32px; font-weight: bold; color: #dc3545;">
+        {{ sessions|rejectattr('passed')|list|length }}
+      </div>
+      <div style="color: #6c757d; font-size: 14px;">不及格次数</div>
+    </div>
+    <div>
+      <div style="font-size: 32px; font-weight: bold; color: #ffc107;">
+        {% if sessions|length > 0 %}
+          {{ "%.1f"|format((sessions|sum(attribute='score') / sessions|length)) }}
+        {% else %}
+          0
+        {% endif %}
+      </div>
+      <div style="color: #6c757d; font-size: 14px;">平均分</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <table style="width: 100%; border-collapse: collapse;">
+    <thead>
+      <tr style="border-bottom: 2px solid #dee2e6; background: #f8f9fa;">
+        <th style="padding: 12px; text-align: left;">考试时间</th>
+        <th style="padding: 12px; text-align: left;">题库</th>
+        <th style="padding: 12px; text-align: center;">题目数</th>
+        <th style="padding: 12px; text-align: center;">答对数</th>
+        <th style="padding: 12px; text-align: center;">分数</th>
+        <th style="padding: 12px; text-align: center;">结果</th>
+        <th style="padding: 12px; text-align: center;">操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for session in sessions %}
+      <tr style="border-bottom: 1px solid #dee2e6; {% if loop.index % 2 == 0 %}background: #f8f9fa;{% endif %}">
+        <td style="padding: 12px;">{{ session.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td style="padding: 12px;">
+          {% if session.scope == 'all' %}
+            <span style="background: #e9ecef; padding: 4px 8px; border-radius: 4px; font-size: 13px;">全部题库</span>
+          {% else %}
+            <span style="background: #e9ecef; padding: 4px 8px; border-radius: 4px; font-size: 13px;">
+              {{ session.category.name if session.category else '未知分类' }}
+            </span>
+          {% endif %}
+        </td>
+        <td style="padding: 12px; text-align: center;">{{ session.total_count }}</td>
+        <td style="padding: 12px; text-align: center;">{{ session.correct_count }}</td>
+        <td style="padding: 12px; text-align: center;">
+          <strong style="color: {% if session.score >= 80 %}#28a745{% elif session.score >= 60 %}#ffc107{% else %}#dc3545{% endif %};">
+            {{ "%.1f"|format(session.score) }}
+          </strong>
+        </td>
+        <td style="padding: 12px; text-align: center;">
+          {% if session.passed %}
+            <span style="color: #28a745; font-weight: bold;">✓ 及格</span>
+          {% else %}
+            <span style="color: #dc3545; font-weight: bold;">✗ 不及格</span>
+          {% endif %}
+        </td>
+        <td style="padding: 12px; text-align: center;">
+          <a href="{{ url_for('exam.exam_result', session_id=session.id) }}" 
+             style="background-color: #007bff; color: white; padding: 6px 12px; text-decoration: none; border-radius: 4px; font-size: 14px; display: inline-block;">
+            查看详情
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card">
+  <p style="text-align: center; color: #6c757d; padding: 40px 0;">
+    暂无考试记录，快去开始你的第一次考试吧！
+  </p>
+</div>
+{% endif %}
+
+<div style="margin-top: 20px;">
+  <a href="{{ url_for('exam.exam_start') }}" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; display: inline-block;">
+    ➕ 开始新考试
+  </a>
+</div>
+{% endblock %}

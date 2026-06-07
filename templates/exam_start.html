@@ -3,7 +3,21 @@
 {% block content %}
 <h2>开始模拟考试</h2>
 <form method="post" class="card">
-  <p>抽题数量：<input type="number" name="count" value="10" min="1"></p>
+  <div style="margin-bottom: 20px;">
+    <label><strong>选择题库：</strong></label>
+    <select name="category_id" style="width: 100%; padding: 8px; margin-top: 8px;">
+      <option value="">全部题库</option>
+      {% for category in categories %}
+      <option value="{{ category.id }}">{{ category.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  
+  <div style="margin-bottom: 20px;">
+    <label><strong>题目数量：</strong></label>
+    <input type="number" name="count" value="10" min="1" max="100" style="width: 100%; padding: 8px; margin-top: 8px;">
+  </div>
+  
   <p><button type="submit">开始考试</button></p>
 </form>
 {% endblock %}

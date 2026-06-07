@@ -49,7 +49,7 @@ app.register_blueprint(admin_bp)
 @app.route("/")
 @login_required
 def index():
-    categories = Category.query.order_by(Category.sort_order.asc(), Category.name.asc()).all()
+    categories = Category.query.filter_by(is_active=True).order_by(Category.sort_order.asc(), Category.name.asc()).all()
     return render_template("index.html", categories=categories)
 
 
@@ -166,6 +166,13 @@ def init_db():
         if "sort_order" not in category_columns:
             db.session.execute(
                 sql_text("ALTER TABLE category ADD COLUMN sort_order INTEGER DEFAULT 0")
+            )
+            db.session.commit()
+
+        # 检查并添加 category 表的 is_active 列
+        if "is_active" not in category_columns:
+            db.session.execute(
+                sql_text("ALTER TABLE category ADD COLUMN is_active BOOLEAN DEFAULT 1")
             )
             db.session.commit()
 
